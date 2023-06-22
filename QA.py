@@ -1,6 +1,7 @@
 import numpy as np
 import cmath
 import math
+from scipy.linalg import expm
 import matplotlib.pyplot as plt
 import time
 
@@ -31,10 +32,6 @@ def zPauli(site, state, act_from_left):
     #print("state after:\n", state)
 
     return state
-
-#n=2
-#state = np.ones((4,4))
-#zPauli(2,state,True)
 
 
 def xPauli(site, state, act_from_left):
@@ -68,13 +65,6 @@ def xPauli(site, state, act_from_left):
     #print("state after: \n", transformed_state)
 
     return transformed_state
-
-#n=2
-#state = np.zeros((4,4))
-#state[1,1]=1
-#state[2,3]=1
-#state[1,0]=1
-#xPauli(2,2,state,False)
 
 
 def minplusPauli(site, state, act_from_left, minus):
@@ -122,11 +112,6 @@ def minplusPauli(site, state, act_from_left, minus):
 
     return transformed_state
     
-#n=2
-#state = np.array([0,0,1,0])
-#minplusPauli(1,state,act_from_left=True,minus=False)
-
-
 
 def EigenSystem():
     """ Produces eigenstates/values for n=2 qbits """
@@ -156,17 +141,21 @@ def g(eigenvalues, b, a):
     return g
 
 def deltaMatrix(index):
-    """ Creates a matrix of zeros, except for a 1 in the diagonal element [index,index] """
+    """ Creates a matrix of zeros, except for a 1 in the diagonal element [index,index].
+        This is used later to pick out certain elements of a matrix (rho). """
     delta = np.zeros((2**n,2**n))
     delta[index,index] = 1
     return delta
 
-def PermMatrix(old_index, new_index):
+def PermMatrix(a, b):
+    """ Creates an identity matrix where the a and b rows are swapped. 
+        This is used later to move elements of a matrix (rho) along the diagonal. """
     E = np.identity(2**n)
-    temp = E[old_index].copy()
-    E[old_index] = E[new_index]
-    E[new_index] = temp
+    temp = E[a].copy()
+    E[a] = E[b]
+    E[b] = temp
     return E
+
 
 def LindBladian(operator=True, rho=None):
     """ 
@@ -187,8 +176,10 @@ def LindBladian(operator=True, rho=None):
     eigenstates,eigenvalues = EigenSystem()
 
     if operator:
-        rho_dot = -complex(0,1) * (np.kron(np.identity(2**n), H) - np.kron(H.T, np.identity(2**n)))
-    else:
+        rho_dot = -complex(0,1) * (np.kron(np.identity(2**n), H) - np.kron(H.T, np.identity(2**n)))*0
+        #print(rho_dot)
+        #rho_dot = (np.kron(np.identity(2**n), H) - np.kron(H.T, np.identity(2**n)))
+    else:   # Do not need to vectorize here (yet)
         rho_dot = -complex(0,1) * (np.kron(np.identity(2**n), H) - np.kron(H.T, np.identity(2**n))) @ rho
 
     for a in range(2**n):
@@ -209,43 +200,52 @@ def LindBladian(operator=True, rho=None):
                         np.matmul(a_state, minplusPauli(i+1, b_state, act_from_left=True, minus=False))
 
             if operator:
-                rho_dot += np.kron(np.identity(2**n), deltaMatrix(a))
-                rho_dot += np.kron(deltaMatrix(a), np.identity(2**n))
+                rho_dot += np.kron(np.identity(2**n), deltaMatrix(a))   # Picks out row a when multiplied with rho.
+                rho_dot += np.kron(deltaMatrix(a), np.identity(2**n))   # Picks out column a when multiplied with rho.
 
                 E = PermMatrix(a,b)
                 delta = deltaMatrix(a)
-                rho_dot -= (np.kron(np.identity(2**n), E) @ np.kron(E, np.identity(2**n))) @ (np.kron(np.identity(2**n), deltaMatrix(a)) @ np.kron(deltaMatrix(a), np.identity(2**n)))
+                rho_dot -= (np.kron(np.identity(2**n), E) @ np.kron(E, np.identity(2**n))) @ (np.kron(np.identity(2**n), deltaMatrix(a)) @ \
+                        np.kron(deltaMatrix(a), np.identity(2**n)))     # Picks out a'th diagonal element and moves it to the b'th diagonal when multiplied with rho.
+
 
             else:
                 rho_dot[a::2**n] += pre_factor * rho[a::2**n]                       # Row a of rho matrix
                 rho_dot[a*2**n:(a+1)*2**n] += pre_factor * rho[a*2**n:(a+1)*2**n]   # Column a of rho matrix
-                rho_dot[b*2**n + b] -= pre_factor * rho[a*2**n + a]                 # a/b'th diagonal element of rho matrix
+                rho_dot[b*2**n + b] -= pre_factor * rho[a*2**n + a]                 # a'th diagonal element of rho matrix
 
     return rho_dot
 
 
 def CrankNicholsan(rho):
-    dt=0.1
-    iterations = 20
+    dt=1
+    iterations = 200000
     conv = np.zeros((4**n,iterations))
 
     print("initial rho:\n", rho)
+
+    # Without time dependence, Lindbladian stays the same at each iteration/time step.
+    rho_dot_operator = LindBladian(operator=True)
+
     for i in range(iterations):
         # RHS of Crank Nicholsan
-        rho_dot = LindBladian(operator=False, rho=rho)
-        print(np.absolute(rho_dot))
-        rho_prime_old = rho - (1/2)*complex(0,1)*rho_dot*dt
-        
+        #rho_dot = LindBladian(operator=False, rho=rho)
+        #rho_prime_old = rho + (1/2)*rho_dot*dt
+        rho_prime_old = (1 - (1/2)*complex(0,1)*rho_dot_operator*dt) @ rho
+
         # LHS of Crank Nicholsan
-        rho_dot_operator = LindBladian(operator=True)
         rho_new = np.linalg.solve((1 + (1/2)*complex(0,1)*rho_dot_operator*dt), rho_prime_old)
+        #rho_new = np.linalg.solve((1 + (1/2)*rho_dot_operator*dt), rho_prime_old)
+        
+        #print(np.sum((1 + (1/2)*rho_dot_operator*dt)/(1 - (1/2)*rho_dot_operator*dt)))
+
 
         conv[:,i] = np.absolute(rho_new-rho) #np.absolute(rho_dot)
         rho = rho_new.copy()
 
         #if i%(int(iterations/5))==0:
-        #print("\nstate vector: \n", rho.round(decimals=3))
-
+            #print("\nstate vector: \n", rho.round(decimals=3))
+    print("\nfinal rho: \n", rho.round(decimals=3))
 
     for index in range (4**n):
         if index < 1:
@@ -253,19 +253,37 @@ def CrankNicholsan(rho):
             plt.show()
     return None
 
+def DirectMethod(rho):
+    """ Computes \rho_{n+1} = exp(L*dt) \rho_n iteratively """
 
-def RungeKutta(n, rho):
-    h = 0.1
+    dt = 0.00001
+    iterations=20000
 
-    for i in range(10):
-        k1 = LindBladian(n, rho)
-        k2 = LindBladian(n, rho + h*(k1/2))
-        k3 = LindBladian(n, rho + h*(k2/2))
-        k4 = LindBladian(n, rho + h*k3)
+    print("initial rho:\n", rho)
+
+    lindbladian = LindBladian(operator=True)
+    conv = np.zeros((4**n,iterations))
+
+    for i in range(iterations):
+        rho_new = expm(lindbladian*dt) @ rho
+        conv[:,i] = np.absolute(rho_new-rho) #np.absolute(rho_dot)
+        rho = rho_new.copy()
+
+    print("\nfinal rho: \n", rho.round(decimals=3))
+
+    # Below plots the difference between \rho_{n+1} and \rho_n for each element.
+    # Comment out if you do not want to plot all graphs, or reduce number in if statement. 
+    for index in range (4**n):
+        if index < 20:
+            plt.plot(np.linspace(0,iterations-1,iterations), conv[index], 'ro', markersize=2)
+            plt.show()
+
     return None
 
 
 def TestFcn(rho):
+    """ Ignore """
+
     print("initial rho:\n", rho)
     
     a = 1
@@ -291,7 +309,7 @@ def TestFcn(rho):
 
 
 T = 0.008
-lam_sq = 1
+lam_sq = 0.00001
 n = 2 # number of qbits
 
 
@@ -313,7 +331,8 @@ random_state3 = np.ones(2**n)
 #xPauli(n, 1, random_state2, act_from_left=True)
 #LindBladian(operator=True, rho=vec_initial_rho)
 #CrankNicholsan(vec_initial_rho)
-TestFcn(vec_initial_rho)
+DirectMethod(vec_initial_rho)
+#TestFcn(vec_initial_rho)
 
 #print(rho_initial)
 #print(EigenStates(n))
