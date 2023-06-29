@@ -75,14 +75,14 @@ def minplusPauli(site, state, act_from_left=True, minus=None):
     INPUT:
     ------
     site =          site =  integer(1,2,...). The spin/qbit at which Pauli matrix applied 
-    state =         array(s) of size 2**n. If multiple arrays are provided, place them into a matrix.
-    act_from_left = boolean. If True, Pali matrix acts on on ket.
+    state =         arrays of size (2**n,2**n) (density matrix) / (2**n) (state vector).
+                    If you act on a state vector (2**n array), do not specify act_from_left variable.
+    act_from_left = boolean. If True, Pali matrix acts on on kets of density matrix (state variable).
     minus =         boolean. If True, lowering operator applied, else raising operator. 
     """
 
-    print("state before: \n", state)
-    #transformed_state = state.copy()
-    transformed_state = np.zeros((2**n,2**n))
+    #print("state before: \n", state)
+    transformed_state = np.zeros(state.shape, dtype=complex)
     for index in range(2**n):
         # Finds bit value corresponding to the site
         k = n-site
@@ -92,18 +92,12 @@ def minplusPauli(site, state, act_from_left=True, minus=None):
         if act_from_left:
             if not minus and bit_value==1:
                 new_index = index-2**(n-site) # bit 1 -> 0
-                #transformed_state[index] -= state[index]
                 transformed_state[new_index] += state[index]
-            #elif not minus and bit_value==0:
-            #    transformed_state[index] -= state[index]
             elif minus and bit_value==0:
                 new_index = index+2**(n-site) # bit 0 -> 1
-                #transformed_state[index] -= state[index]
                 transformed_state[new_index] += state[index]
-            #elif minus and bit_value==1:
-            #    transformed_state[index] -= state[index]
 
-        else:   # Fix!
+        else:
             if not minus and bit_value==0:
                 new_index = index+2**(n-site)
                 transformed_state[:,new_index] += state[:,index]
@@ -112,7 +106,7 @@ def minplusPauli(site, state, act_from_left=True, minus=None):
                 transformed_state[:,new_index] += state[:,index]
 
 
-    print("state after: \n", transformed_state)
+    #print("state after: \n", transformed_state)
 
     return transformed_state
     
@@ -151,6 +145,7 @@ def Hamiltoneon():
     return H
 
 def Hcommutator(rho):
+    """ Computes [H, \rho] for H = \sigma_z^1 + \sigma_z^2 """
     commutator = zPauli(n, 1, rho, act_from_left=True) + zPauli(n, 2, rho, act_from_left=True) - \
             zPauli(n, 1, rho, act_from_left=False) - zPauli(n, 2, rho, act_from_left=False)
     return commutator
@@ -166,14 +161,14 @@ def g(eigenvalues, b, a):
 
 def deltaMatrix(index):
     """ Creates a matrix of zeros, except for a 1 in the diagonal element [index,index].
-        This is used later to pick out certain elements of a matrix (rho). """
+        This is used to pick out certain elements of a matrix (rho). """
     delta = np.zeros((2**n,2**n))
     delta[index,index] = 1
     return delta
 
 def PermMatrix(a, b):
     """ Creates an identity matrix where the a and b rows are swapped. 
-        This is used later to move elements of a matrix (rho) along the diagonal. """
+        This is used to move elements of a matrix (rho) along the diagonal. """
     E = np.identity(2**n)
     temp = E[a].copy()
     E[a] = E[b]
@@ -216,10 +211,10 @@ def LindBladian(operator=True, rho=None):
 
             pre_factor = 0
             for i in range(n):
-                pre_factor -= Nba * abs(gba)**2 * np.matmul(a_state, minplusPauli(i+1, b_state, act_from_left=True, minus=True)) * \
-                        np.matmul(b_state, minplusPauli(i+1, a_state, act_from_left=True, minus=False)) + \
-                        (Nab+1) * abs(gab)**2 * np.matmul(b_state, minplusPauli(i+1, a_state, act_from_left=True, minus=True)) * \
-                        np.matmul(a_state, minplusPauli(i+1, b_state, act_from_left=True, minus=False))
+                pre_factor -= Nba * abs(gba)**2 * np.matmul(a_state, minplusPauli(i+1, b_state, minus=True)) * \
+                        np.matmul(b_state, minplusPauli(i+1, a_state, minus=False)) + \
+                        (Nab+1) * abs(gab)**2 * np.matmul(b_state, minplusPauli(i+1, a_state, minus=True)) * \
+                        np.matmul(a_state, minplusPauli(i+1, b_state, minus=False))
 
             if operator:
                 rho_dot += np.kron(np.identity(2**n), deltaMatrix(a))   # Picks out row a when multiplied with rho.
@@ -306,33 +301,46 @@ def DirectMethod(rho):
 def MCWF(phi):
     print("initial phi\n", phi)
 
-    dt = 0.0001
-    iterations = 80000
+    dt = 0.001
+    iterations = 50000 #80000
     conv = np.zeros((2**n,iterations))
 
     for i in range(iterations):
+        emission_pre_factors, absorption_pre_factors = PreFactors()
+        #emission_pre_factors, absorption_pre_factors = np.ones(n), np.ones(n)
+
         delta_p_list = []
         for j in range(n):
-            delta_p_list.append((phi @ RemoveGroundState(j+1, phi)) * dt)
+            # Spontaneous photon emission by qbit j+1 (qbit counting starts at 1, forloop starts at 0)
+            delta_p_list.append(emission_pre_factors[j] * (phi @ minplusPauli(j+1, minplusPauli(j+1, phi, minus=True), minus=False)) * dt)
+            # Absorption of photon by qbit j+1
+            delta_p_list.append(absorption_pre_factors[j] * (phi @ minplusPauli(j+1, minplusPauli(j+1, phi, minus=False), minus=True)) * dt)
+    
         delta_p = np.sum(delta_p_list)
         epsilon = random.rand()
 
         if delta_p > 0.5:
             print("Warning! delta_p is getting large, must be much smaller than 1. Current value:", delta_p)
 
-        if epsilon > delta_p:
-            #phi_1 = phi - complex(0,1) * (zPauli(1,phi) + zPauli(2,phi)) * dt 
-            phi_1 = phi
-
+        #delta_p = 0
+        #if epsilon > delta_p:   # -> No emission/absorption
+        if True:
+            phi_1 = phi - complex(0,1) * (zPauli(1,phi) + zPauli(2,phi)) * dt 
             for j in range(n):
-                phi_1 -= (1/2) * RemoveGroundState(j+1, phi) * dt
-            phi_new = phi_1/(1-delta_p)**0.5
+                phi_1 -= (1/2) * emission_pre_factors[j] * minplusPauli(j+1, minplusPauli(j+1, phi, minus=True), minus=False) * dt
+                phi_1 -= (1/2) * absorption_pre_factors[j] * minplusPauli(j+1, minplusPauli(j+1, phi, minus=False), minus=True) * dt
+            phi_new = phi_1/((1-delta_p)**0.5)
 
         else:
-            print("spontaneous emission!")
             max_prob = max(delta_p_list)
             index = np.argmax(delta_p_list)
-            phi_new = minplusPauli(index+1, phi, minus=True)/(max_prob/dt)**0.5
+        
+            if index%2==0:
+                print("spontaneous emission!")
+                phi_new = emission_pre_factors[j]**0.5 * minplusPauli(index+1, phi, minus=True)/((max_prob/dt)**0.5)
+            else:
+                print("absorption!")
+                phi_new = absorption_pre_factors[j]**0.5 * minplusPauli(index+1, phi, minus=False)/((max_prob/dt)**0.5)
 
         conv[:,i] = np.absolute(phi_new-phi)
 
@@ -340,20 +348,53 @@ def MCWF(phi):
         phi = phi_new
 
         phi_len = np.linalg.norm(phi)
-        if phi_len > 1.5 or phi_len < 0.5:
-            print("phi not normalized properly. Its norm is\n", phi_len)
+        #if phi_len > 1.5 or phi_len < 0.5:
+            #print("phi not normalized properly. Its norm is\n", phi_len)
     
 
     for index in range (2**n):
         plt.plot(np.linspace(0,iterations-1,iterations), conv[index], 'ro', markersize=2)
         plt.show()
-    #print("\nconvv\n", convv)
 
 
     print("new phi\n", phi.round(decimals=3))
     print("phi length:", phi_len)
 
     return None
+
+def PreFactors():
+    """ Computes pre_factors of all operators (emission and absorption operators for all sites). """
+
+    eigenstates,eigenvalues = EigenSystem()
+
+    emission_pre_factors = []
+    absorption_pre_factors = []
+
+    for i in range(n):
+        emission_pre_factor = 0
+        absorption_pre_factor = 0
+        for a in range(2**n):
+            a_state = eigenstates[a]
+            for b in range(2**n):
+                b_state = eigenstates[b]
+
+                Nba = N(eigenvalues, b, a)
+                gba = g(eigenvalues, b, a)
+                Nab = N(eigenvalues, a, b)
+                gab = g(eigenvalues, a, b)
+        
+
+                emission_pre_factor -= (Nab+1) * abs(gab)**2 * np.matmul(b_state, minplusPauli(i+1, a_state, minus=True)) * \
+                            np.matmul(a_state, minplusPauli(i+1, b_state, minus=False))
+    
+                absorption_pre_factor -= Nba * abs(gba)**2 * np.matmul(a_state, minplusPauli(i+1, b_state, minus=True)) * \
+                            np.matmul(b_state, minplusPauli(i+1, a_state, minus=False))
+
+        emission_pre_factors.append(emission_pre_factor)
+        absorption_pre_factors.append(absorption_pre_factor)
+
+    return emission_pre_factors, absorption_pre_factors
+
 
 def TestFcn(rho):
     """ Ignore """
@@ -382,9 +423,9 @@ def TestFcn(rho):
 
 
 
-T = 0.008
-lam_sq = 0.00001
-n = 3 # number of qbits
+T = 0.1#0.008#0.008
+lam_sq = 1
+n = 2 # number of qbits
 
 
 
@@ -401,12 +442,13 @@ random_state2 = np.identity(2**n)
 random_state3 = np.arange(4**n).reshape((2**n,2**n))
 
 
-minplusPauli(2, random_state3, act_from_left=False, minus=False)
+#minplusPauli(2, minplusPauli(2, initial_phi, minus=False), minus=True)
+#minplusPauli(2, random_state3, act_from_left=False, minus=False)
 #xPauli(n, 1, random_state2, act_from_left=True)
 #LindBladian(operator=True, rho=vec_initial_rho)
 #CrankNicholsan(vec_initial_rho)
 #DirectMethod(vec_initial_rho)
-#MCWF(initial_phi)
+MCWF(initial_phi)
 #RemoveGroundState(2, initial_phi)
 #TestFcn(vec_initial_rho)
 
