@@ -1,4 +1,5 @@
 import numpy as np
+from numpy import random
 import cmath
 import math
 from scipy.linalg import expm
@@ -6,7 +7,7 @@ import matplotlib.pyplot as plt
 import time
 
 
-def zPauli(site, state, act_from_left):
+def zPauli(site, state, act_from_left=True):
     """
     Applies sigma_z on a given state.
 
@@ -67,7 +68,7 @@ def xPauli(site, state, act_from_left):
     return transformed_state
 
 
-def minplusPauli(site, state, act_from_left, minus):
+def minplusPauli(site, state, act_from_left=True, minus=None):
     """
     Applies Reasing/lowering operator sigma_(plus/minus) on a given state.
 
@@ -79,8 +80,9 @@ def minplusPauli(site, state, act_from_left, minus):
     minus =         boolean. If True, lowering operator applied, else raising operator. 
     """
 
-    #print("state before: \n", state)
-    transformed_state = state.copy()
+    print("state before: \n", state)
+    #transformed_state = state.copy()
+    transformed_state = np.zeros((2**n,2**n))
     for index in range(2**n):
         # Finds bit value corresponding to the site
         k = n-site
@@ -90,28 +92,50 @@ def minplusPauli(site, state, act_from_left, minus):
         if act_from_left:
             if not minus and bit_value==1:
                 new_index = index-2**(n-site) # bit 1 -> 0
-                transformed_state[index] -= state[index]
+                #transformed_state[index] -= state[index]
                 transformed_state[new_index] += state[index]
+            #elif not minus and bit_value==0:
+            #    transformed_state[index] -= state[index]
             elif minus and bit_value==0:
                 new_index = index+2**(n-site) # bit 0 -> 1
-                transformed_state[index] -= state[index]
+                #transformed_state[index] -= state[index]
                 transformed_state[new_index] += state[index]
+            #elif minus and bit_value==1:
+            #    transformed_state[index] -= state[index]
 
-        else:
-            if not minus and bit_value==1:
-                new_index = index-2**(n-site)
-                transformed_state[index] -= state[index]
-                transformed_state[:,new_index] += state[:,index]
-            elif minus and bit_value==0:
+        else:   # Fix!
+            if not minus and bit_value==0:
                 new_index = index+2**(n-site)
-                transformed_state[index] -= state[index]
+                transformed_state[:,new_index] += state[:,index]
+            elif minus and bit_value==1:
+                new_index = index-2**(n-site)
                 transformed_state[:,new_index] += state[:,index]
 
+
+    print("state after: \n", transformed_state)
+
+    return transformed_state
+    
+def RemoveGroundState(site, state, act_from_left=True):
+    #print("phi before: \n", state)
+    transformed_state = state.copy()
+    for index in range(2**n):
+        # Finds bit value corresponding to the site
+        k = n-site
+        bit_value = (index & (1 << k)) >> k
+
+        # Remove if in ground state at given site
+        if act_from_left:
+            if bit_value==1:
+                transformed_state[index] -= state[index]
+
+        else:   # Fix!
+            print("do something")
 
     #print("state after: \n", transformed_state)
 
     return transformed_state
-    
+
 
 def EigenSystem():
     """ Produces eigenstates/values for n=2 qbits """
@@ -176,9 +200,7 @@ def LindBladian(operator=True, rho=None):
     eigenstates,eigenvalues = EigenSystem()
 
     if operator:
-        rho_dot = -complex(0,1) * (np.kron(np.identity(2**n), H) - np.kron(H.T, np.identity(2**n)))*0
-        #print(rho_dot)
-        #rho_dot = (np.kron(np.identity(2**n), H) - np.kron(H.T, np.identity(2**n)))
+        rho_dot = -complex(0,1) * (np.kron(np.identity(2**n), H) - np.kron(H.T, np.identity(2**n)))
     else:   # Do not need to vectorize here (yet)
         rho_dot = -complex(0,1) * (np.kron(np.identity(2**n), H) - np.kron(H.T, np.identity(2**n))) @ rho
 
@@ -256,7 +278,7 @@ def CrankNicholsan(rho):
 def DirectMethod(rho):
     """ Computes \rho_{n+1} = exp(L*dt) \rho_n iteratively """
 
-    dt = 0.00001
+    dt = 0.0001
     iterations=20000
 
     print("initial rho:\n", rho)
@@ -274,12 +296,64 @@ def DirectMethod(rho):
     # Below plots the difference between \rho_{n+1} and \rho_n for each element.
     # Comment out if you do not want to plot all graphs, or reduce number in if statement. 
     for index in range (4**n):
-        if index < 20:
+        if index < 2:
             plt.plot(np.linspace(0,iterations-1,iterations), conv[index], 'ro', markersize=2)
             plt.show()
 
     return None
 
+
+def MCWF(phi):
+    print("initial phi\n", phi)
+
+    dt = 0.0001
+    iterations = 80000
+    conv = np.zeros((2**n,iterations))
+
+    for i in range(iterations):
+        delta_p_list = []
+        for j in range(n):
+            delta_p_list.append((phi @ RemoveGroundState(j+1, phi)) * dt)
+        delta_p = np.sum(delta_p_list)
+        epsilon = random.rand()
+
+        if delta_p > 0.5:
+            print("Warning! delta_p is getting large, must be much smaller than 1. Current value:", delta_p)
+
+        if epsilon > delta_p:
+            #phi_1 = phi - complex(0,1) * (zPauli(1,phi) + zPauli(2,phi)) * dt 
+            phi_1 = phi
+
+            for j in range(n):
+                phi_1 -= (1/2) * RemoveGroundState(j+1, phi) * dt
+            phi_new = phi_1/(1-delta_p)**0.5
+
+        else:
+            print("spontaneous emission!")
+            max_prob = max(delta_p_list)
+            index = np.argmax(delta_p_list)
+            phi_new = minplusPauli(index+1, phi, minus=True)/(max_prob/dt)**0.5
+
+        conv[:,i] = np.absolute(phi_new-phi)
+
+
+        phi = phi_new
+
+        phi_len = np.linalg.norm(phi)
+        if phi_len > 1.5 or phi_len < 0.5:
+            print("phi not normalized properly. Its norm is\n", phi_len)
+    
+
+    for index in range (2**n):
+        plt.plot(np.linspace(0,iterations-1,iterations), conv[index], 'ro', markersize=2)
+        plt.show()
+    #print("\nconvv\n", convv)
+
+
+    print("new phi\n", phi.round(decimals=3))
+    print("phi length:", phi_len)
+
+    return None
 
 def TestFcn(rho):
     """ Ignore """
@@ -310,14 +384,13 @@ def TestFcn(rho):
 
 T = 0.008
 lam_sq = 0.00001
-n = 2 # number of qbits
+n = 3 # number of qbits
 
 
 
 
 initial_rho = (1/n**0.5) * np.ones((2**n, 2**n))
-#initial_rho = np.arange(0,4**n).reshape((2**n,2**n))
-#print("initial rho:\n", initial_rho)
+initial_phi = (1/(2**n)**0.5) * np.ones(2**n)
 #initial_rho = np.zeros((2**n,2**n))
 #initial_rho[3,3] = 1
 
@@ -325,13 +398,16 @@ vec_initial_rho = initial_rho.flatten(order='F')
 
 random_state1 = np.ones((2**n, 2**n))
 random_state2 = np.identity(2**n)
-random_state3 = np.ones(2**n)
+random_state3 = np.arange(4**n).reshape((2**n,2**n))
 
-#minplusPauli(n, 1, random_state3, act_from_left=True, minus=True)
+
+minplusPauli(2, random_state3, act_from_left=False, minus=False)
 #xPauli(n, 1, random_state2, act_from_left=True)
 #LindBladian(operator=True, rho=vec_initial_rho)
 #CrankNicholsan(vec_initial_rho)
-DirectMethod(vec_initial_rho)
+#DirectMethod(vec_initial_rho)
+#MCWF(initial_phi)
+#RemoveGroundState(2, initial_phi)
 #TestFcn(vec_initial_rho)
 
 #print(rho_initial)
