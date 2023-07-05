@@ -5,7 +5,9 @@ import math
 from scipy.linalg import expm
 import matplotlib.pyplot as plt
 import time
-
+from sympy import *
+import sys
+from tqdm import tqdm
 
 def zPauli(site, state, act_from_left=True):
     """
@@ -141,12 +143,36 @@ def EigenSystem():
     #eigenvalues = [0,-2,2,0]
     return eigenstates, eigenvalues
 
-def Hamiltoneon():
+def HamiltoneonOperator():
     """ Constructs Hamiltoneon specificially for n=2 qbits case """
     sz = np.array([[1,0],[0,-1]])
     I = np.identity(n)
     H = np.kron(sz, I) + np.kron(I, sz)
     return H
+
+def Hamiltoneon(s):
+    sz = np.array([[1,0],[0,-1]])
+    sx = np.array([[0,1],[1,0]])
+    I = np.identity(n)
+
+    H = (np.kron(sx, I) + np.kron(I, sx))*(1-s) + (np.kron(sz, I) + np.kron(I, sz))*s
+    #P, H_diag = Matrix(H).diagonalize()
+    #eigenvalues = np.array(np.diag(H_diag))
+    #eigenstates = np.array([np.identity(2**n)[:,i] for i in range(2**n)])
+    #print("Hamiltoneon:\n", H)
+    eigenvalues, eigenstates = np.linalg.eig(H)
+    #eigenvalues, eigenvectors = eigenvalues.round(decimals=5), eigenvectors.round(decimals=5)
+
+    #print("Eigenvectors:\n", eigenstates)
+    #print("Eigenvalues:\n", eigenvalues)
+    #H_diag = np.array([eigenvalues[i]*eigenvectors[i] for i in range(2**n)]).T
+    #print("Diagonalized Hamiltoneon:\n", H_diag)
+
+
+
+    return H, eigenstates, eigenvalues
+
+
 
 def Hcommutator(rho):
     """ Computes [H, \rho] for H = \sigma_z^1 + \sigma_z^2 """
@@ -162,7 +188,13 @@ def N_old(eigenvalues, b, a):
 
 def N(x, y):
     beta = 1/T
-    N = 1/(math.exp(beta*(x-y))-1) if x > y else 0
+    try:
+        N = 1/(math.exp(beta*(x-y))-1) if round(x,2) > round(y,2) else 0
+    except Exception as e:
+        print(e)
+        print("x:", x)
+        print("y:", y)
+        sys.exit()
     return N
 
 
@@ -317,11 +349,10 @@ def DirectMethod(rho):
 def MCWF(phi):
     print("initial phi\n", phi)
 
-    dt = 0.00001 
+    dt = 0.000003 
     t = 1
-    iterations = int(t/dt)
-
-    eigenstates, eigenvalues = EigenSystem()
+    iterations = int(1/dt)
+    #eigenstates, eigenvalues = EigenSystem()
 
     conv = np.zeros((2**n,iterations))
     convv = np.zeros((6,iterations))
@@ -329,8 +360,11 @@ def MCWF(phi):
     #emission_pre_factors, absorption_pre_factors = PreFactors2()
     #print("emission prefactors:", emission_pre_factors)
     #print("absorption prefactors:", absorption_pre_factors)
+    for i in tqdm(range(iterations)):
+        #print(i)
+        s = i * dt
+        H, eigenstates, eigenvalues = Hamiltoneon(s)
 
-    for i in range(iterations):
         emission_pre_factors = []
         absorption_pre_factors = []
 
@@ -339,7 +373,31 @@ def MCWF(phi):
             # Spontaneous photon emission by qbit j+1 (qbit counting starts at 1, forloop starts at 0)
             phi_b = minplusPauli(j+1, phi, minus=True)
             phi_a = minplusPauli(j+1, phi_b, minus=False)
-            energy_b, energy_a = ((np.conj(phi_b)*phi_b) @ eigenvalues).real, ((np.conj(phi_a)*phi_a) @ eigenvalues).real
+            try:
+                phi_b_decomp = np.linalg.lstsq(eigenstates.T, phi_b, rcond=None)[0]
+            except Exception as e:
+                print(e)
+                print("phi\n", phi.round(decimals=4))
+                #print("phi_b\n", phi_b)
+                print("phi_b rounded\n", phi_b.round(decimals=4))
+                print("phi_b norm:", np.linalg.norm(phi_b))
+                print("eigenstates\n", eigenstates.round(decimals=4))
+                sys.exit()
+            if np.linalg.norm(phi_b_decomp) > 0:
+                phi_b_decomp *= np.linalg.norm(phi_b)/np.linalg.norm(phi_b_decomp)
+            else:
+                phi_b_decomp *= 0
+            #if np.isnan(phi_b_decomp.any()):
+            #    print(phi_b_decomp)
+            #    sys.exit("NAN VALUE")
+            #print("phi_b norm", np.linalg.norm(phi_b))
+            #print("phi_b_decomp norm", np.linalg.norm(phi_b_decomp))
+            phi_a_decomp = np.linalg.lstsq(eigenstates.T, phi_a, rcond=None)[0]
+            if np.linalg.norm(phi_a_decomp) > 0:
+                phi_a_decomp *= np.linalg.norm(phi_a)/np.linalg.norm(phi_a_decomp)
+            else:
+                phi_a_decomp *= 0
+            energy_b, energy_a = ((np.conj(phi_b_decomp)*phi_b_decomp) @ eigenvalues).real, ((np.conj(phi_a_decomp)*phi_a_decomp) @ eigenvalues).real
             emission_pre_factors.append((N(energy_a, energy_b)+1) * g(energy_a, energy_b))
             #delta_p_list.append(emission_pre_factors[j] * (np.conj(phi) @ minplusPauli(j+1, minplusPauli(j+1, phi, minus=True), minus=False)) * dt)
             delta_p_list.append(emission_pre_factors[j] * (np.conj(phi_a) @ phi_a) * dt)
@@ -347,11 +405,26 @@ def MCWF(phi):
             # Absorption of photon by qbit j+1
             phi_b = minplusPauli(j+1, phi, minus=False)
             phi_a = minplusPauli(j+1, phi_b, minus=True)
-            energy_b, energy_a = ((np.conj(phi_b)*phi_b) @ eigenvalues).real, ((np.conj(phi_a)*phi_a) @ eigenvalues).real
+
+            phi_b_decomp = np.linalg.lstsq(eigenstates.T, phi_b, rcond=None)[0]
+            if np.linalg.norm(phi_b_decomp) > 0:
+                phi_b_decomp *= np.linalg.norm(phi_b)/np.linalg.norm(phi_b_decomp)
+            else:
+                phi_b_decomp *= 0
+            phi_a_decomp = np.linalg.lstsq(eigenstates.T, phi_a, rcond=None)[0]
+            if np.linalg.norm(phi_b_decomp) > 0:
+                phi_a_decomp *= np.linalg.norm(phi_a)/np.linalg.norm(phi_a_decomp)
+            else:
+                phi_a_decomp *= 0
+            energy_b, energy_a = ((np.conj(phi_b_decomp)*phi_b_decomp) @ eigenvalues).real, ((np.conj(phi_a_decomp)*phi_a_decomp) @ eigenvalues).real
             absorption_pre_factors.append(N(energy_b, energy_a) * g(energy_b, energy_a))
             #delta_p_list.append(absorption_pre_factors[j] * (np.conj(phi) @ minplusPauli(j+1, minplusPauli(j+1, phi, minus=False), minus=True)) * dt)
             delta_p_list.append(absorption_pre_factors[j] * (np.conj(phi_a) @ phi_a) * dt)
 
+            if abs(energy_a) > 3 or abs(energy_b) > 3:
+                print("Energy a:", energy_a)
+                print("Energy b:", energy_b)
+                sys.error("state energy exceeding bounds")
 
         delta_p = np.sum(delta_p_list)
         epsilon = random.rand()
@@ -360,7 +433,8 @@ def MCWF(phi):
             print("Warning! delta_p is getting large, must be much smaller than 1. Current value:", delta_p)
 
         if epsilon > delta_p:   # -> No emission/absorption
-            phi_1 = phi - complex(0,1) * (zPauli(1,phi) + zPauli(2,phi)) * dt 
+            #phi_1 = phi - complex(0,1) * (zPauli(1,phi) + zPauli(2,phi)) * dt 
+            phi_1 = phi - complex(0,1) * (H @ phi) * dt
             for j in range(n):
                 phi_1 -= (1/2) * emission_pre_factors[j] * minplusPauli(j+1, minplusPauli(j+1, phi, minus=True), minus=False) * dt
                 phi_1 -= (1/2) * absorption_pre_factors[j] * minplusPauli(j+1, minplusPauli(j+1, phi, minus=False), minus=True) * dt
@@ -377,12 +451,12 @@ def MCWF(phi):
             else:
                 print("absorption!")
                 phi_new = absorption_pre_factors[site]**0.5 * minplusPauli(site+1, phi, minus=False)/((max_prob/dt)**0.5)
+       
 
-            #if np.linalg.norm(phi_new) < 0.1:
-            #    print("norm zero")
-            #print("max_prob", max_prob)
-            #print("pre_factors:", emission_pre_factors[site], absorption_pre_factors[site])
-            #print("phi", phi_new)
+            phi_norm = np.linalg.norm(phi_new)
+            if phi_norm < 0.9 or phi_norm > 1.1:
+                print("norm diverging from 1:", phi_norm)
+
 
         conv[:,i] = np.absolute(phi_new-phi)
         convv[0,i] = (phi_new[-1]).real
@@ -394,7 +468,7 @@ def MCWF(phi):
 
         phi = phi_new
 
-        phi_len = np.linalg.norm(phi)
+        #phi_len = np.linalg.norm(phi)
         #if phi_len > 1.5 or phi_len < 0.5:
             #print("phi not normalized properly. Its norm is\n", phi_len)
     
@@ -418,7 +492,7 @@ def MCWF(phi):
 
 
     print("new phi\n", phi.round(decimals=3))
-    print("phi length:", phi_len)
+    print("phi norm:", np.linalg.norm(phi))
 
     return None
 
@@ -496,7 +570,7 @@ def TestFcn(rho):
 
 
 
-T = 1000#0.008#0.008
+T = 1#0.008#0.008
 lam_sq = 1
 n = 2 # number of qbits
 
@@ -504,7 +578,8 @@ n = 2 # number of qbits
 
 
 initial_rho = (1/n**0.5) * np.ones((2**n, 2**n))
-initial_phi = (1/(2**n)**0.5) * np.ones(2**n)
+#initial_phi = (1/(2**n)**0.5) * np.ones(2**n)
+initial_phi = np.array([0.5, -0.5**(0.5), 0.5, 0], dtype=complex)
 #initial_rho = np.zeros((2**n,2**n))
 #initial_rho[3,3] = 1
 
@@ -523,6 +598,7 @@ random_state3 = np.arange(4**n).reshape((2**n,2**n))
 #minplusPauli(2, minplusPauli(2, initial_phi, minus=False), minus=True)
 #minplusPauli(2, random_state3, act_from_left=False, minus=False)
 #xPauli(n, 1, random_state2, act_from_left=True)
+#Hamiltoneon(0)
 #LindBladian(operator=True, rho=vec_initial_rho)
 #CrankNicholsan(vec_initial_rho)
 #DirectMethod(vec_initial_rho)
