@@ -8,6 +8,7 @@ import time
 from sympy import *
 import sys
 from tqdm import tqdm
+import random
 
 def zPauli(site, state, act_from_left=True):
     """
@@ -113,7 +114,13 @@ def minplusPauli(site, state, act_from_left=True, minus=None):
     #print("state after: \n", transformed_state)
 
     return transformed_state
-    
+
+def C(a,b, phi):
+    phi_new = np.zeros(2**n, dtype=complex)
+    phi_new[b] = phi[a].copy()
+    return phi_new
+         
+
 def RemoveGroundState(site, state, act_from_left=True):
     #print("phi before: \n", state)
     transformed_state = state.copy()
@@ -155,22 +162,25 @@ def Hamiltoneon(s):
     sx = np.array([[0,1],[1,0]])
     I = np.identity(n)
 
-    H = (np.kron(sx, I) + np.kron(I, sx))*(1-s) + (np.kron(sz, I) + np.kron(I, sz))*s
+    H = (np.kron(sx, I) + np.kron(I, sx))*(1-s) - (np.kron(sz, I) + np.kron(I, sz))*s
     #P, H_diag = Matrix(H).diagonalize()
     #eigenvalues = np.array(np.diag(H_diag))
     #eigenstates = np.array([np.identity(2**n)[:,i] for i in range(2**n)])
     #print("Hamiltoneon:\n", H)
-    eigenvalues, eigenstates = np.linalg.eig(H)
+    eigenvalues, eigenstates = np.linalg.eigh(H)
+    #eigenstates = np.array([eigenstate/np.linalg.norm(eigenstate) for eigenstate in eigenstates]) # Needed?
+
+    H_diag = np.diag(eigenvalues)
+
     #eigenvalues, eigenvectors = eigenvalues.round(decimals=5), eigenvectors.round(decimals=5)
 
     #print("Eigenvectors:\n", eigenstates)
     #print("Eigenvalues:\n", eigenvalues)
     #H_diag = np.array([eigenvalues[i]*eigenvectors[i] for i in range(2**n)]).T
-    #print("Diagonalized Hamiltoneon:\n", H_diag)
 
 
 
-    return H, eigenstates, eigenvalues
+    return H, H_diag, eigenstates.T, eigenvalues
 
 
 
@@ -188,13 +198,12 @@ def N_old(eigenvalues, b, a):
 
 def N(x, y):
     beta = 1/T
-    try:
-        N = 1/(math.exp(beta*(x-y))-1) if round(x,2) > round(y,2) else 0
-    except Exception as e:
-        print(e)
-        print("x:", x)
-        print("y:", y)
-        sys.exit()
+    if x < y:
+        sys.exit("Eigenvalues incorrect order in N function")
+    if x.imag > 0.01 or y.imag > 0.01:
+        sys.exit("complex eigenvalues in N function!")
+
+    N = 1/(math.exp(beta*(abs(x-y)))-1) if round(abs(x-y), 3)>0 else 0
     return N
 
 
@@ -203,7 +212,8 @@ def g_old(eigenvalues, b, a):
     return g
 
 def g(x, y):
-    g = lam_sq if x > y else 0
+    #g = lam_sq if x > y else 0
+    g = lam_sq
     return g
 
 
@@ -346,152 +356,163 @@ def DirectMethod(rho):
     return None
 
 
-def MCWF(phi):
+def MCWF2(phi):
     print("initial phi\n", phi)
+    dt_ds_ratio = 0.00015
+    ds = 0.000005 #0.000005
+    dt = dt_ds_ratio * ds #0.0001
+    #iterations = int(1.15*int(1/ds))
+    iterations = int(1/ds)
+    iterations2 = 3
 
-    dt = 0.000003 
-    t = 1
-    iterations = int(1/dt)
-    #eigenstates, eigenvalues = EigenSystem()
+    #t = 10
+    #dt = 0.0001
+    #iterations = int(t/dt)
 
     conv = np.zeros((2**n,iterations))
-    convv = np.zeros((6,iterations))
+    convv = np.ones((3*2**n,iterations))*99
 
-    #emission_pre_factors, absorption_pre_factors = PreFactors2()
-    #print("emission prefactors:", emission_pre_factors)
-    #print("absorption prefactors:", absorption_pre_factors)
     for i in tqdm(range(iterations)):
-        #print(i)
-        s = i * dt
-        H, eigenstates, eigenvalues = Hamiltoneon(s)
+        s = min(i * ds, 1)
+        #s = 1
 
-        emission_pre_factors = []
-        absorption_pre_factors = []
-
-        delta_p_list = []
-        for j in range(n):
-            # Spontaneous photon emission by qbit j+1 (qbit counting starts at 1, forloop starts at 0)
-            phi_b = minplusPauli(j+1, phi, minus=True)
-            phi_a = minplusPauli(j+1, phi_b, minus=False)
-            try:
-                phi_b_decomp = np.linalg.lstsq(eigenstates.T, phi_b, rcond=None)[0]
-            except Exception as e:
-                print(e)
-                print("phi\n", phi.round(decimals=4))
-                #print("phi_b\n", phi_b)
-                print("phi_b rounded\n", phi_b.round(decimals=4))
-                print("phi_b norm:", np.linalg.norm(phi_b))
-                print("eigenstates\n", eigenstates.round(decimals=4))
-                sys.exit()
-            if np.linalg.norm(phi_b_decomp) > 0:
-                phi_b_decomp *= np.linalg.norm(phi_b)/np.linalg.norm(phi_b_decomp)
-            else:
-                phi_b_decomp *= 0
-            #if np.isnan(phi_b_decomp.any()):
-            #    print(phi_b_decomp)
-            #    sys.exit("NAN VALUE")
-            #print("phi_b norm", np.linalg.norm(phi_b))
-            #print("phi_b_decomp norm", np.linalg.norm(phi_b_decomp))
-            phi_a_decomp = np.linalg.lstsq(eigenstates.T, phi_a, rcond=None)[0]
-            if np.linalg.norm(phi_a_decomp) > 0:
-                phi_a_decomp *= np.linalg.norm(phi_a)/np.linalg.norm(phi_a_decomp)
-            else:
-                phi_a_decomp *= 0
-            energy_b, energy_a = ((np.conj(phi_b_decomp)*phi_b_decomp) @ eigenvalues).real, ((np.conj(phi_a_decomp)*phi_a_decomp) @ eigenvalues).real
-            emission_pre_factors.append((N(energy_a, energy_b)+1) * g(energy_a, energy_b))
-            #delta_p_list.append(emission_pre_factors[j] * (np.conj(phi) @ minplusPauli(j+1, minplusPauli(j+1, phi, minus=True), minus=False)) * dt)
-            delta_p_list.append(emission_pre_factors[j] * (np.conj(phi_a) @ phi_a) * dt)
-
-            # Absorption of photon by qbit j+1
-            phi_b = minplusPauli(j+1, phi, minus=False)
-            phi_a = minplusPauli(j+1, phi_b, minus=True)
-
-            phi_b_decomp = np.linalg.lstsq(eigenstates.T, phi_b, rcond=None)[0]
-            if np.linalg.norm(phi_b_decomp) > 0:
-                phi_b_decomp *= np.linalg.norm(phi_b)/np.linalg.norm(phi_b_decomp)
-            else:
-                phi_b_decomp *= 0
-            phi_a_decomp = np.linalg.lstsq(eigenstates.T, phi_a, rcond=None)[0]
-            if np.linalg.norm(phi_b_decomp) > 0:
-                phi_a_decomp *= np.linalg.norm(phi_a)/np.linalg.norm(phi_a_decomp)
-            else:
-                phi_a_decomp *= 0
-            energy_b, energy_a = ((np.conj(phi_b_decomp)*phi_b_decomp) @ eigenvalues).real, ((np.conj(phi_a_decomp)*phi_a_decomp) @ eigenvalues).real
-            absorption_pre_factors.append(N(energy_b, energy_a) * g(energy_b, energy_a))
-            #delta_p_list.append(absorption_pre_factors[j] * (np.conj(phi) @ minplusPauli(j+1, minplusPauli(j+1, phi, minus=False), minus=True)) * dt)
-            delta_p_list.append(absorption_pre_factors[j] * (np.conj(phi_a) @ phi_a) * dt)
-
-            if abs(energy_a) > 3 or abs(energy_b) > 3:
-                print("Energy a:", energy_a)
-                print("Energy b:", energy_b)
-                sys.error("state energy exceeding bounds")
-
-        delta_p = np.sum(delta_p_list)
-        epsilon = random.rand()
-
-        if delta_p > 0.1:
-            print("Warning! delta_p is getting large, must be much smaller than 1. Current value:", delta_p)
-
-        if epsilon > delta_p:   # -> No emission/absorption
-            #phi_1 = phi - complex(0,1) * (zPauli(1,phi) + zPauli(2,phi)) * dt 
-            phi_1 = phi - complex(0,1) * (H @ phi) * dt
+        H, H_diag, eigenstates, eigenvalues = Hamiltoneon(s)
+        for k in range(iterations2):
+            emission_pre_factors = []
+            absorption_pre_factors = []
+            pre_factors = []
+            delta_p_list = []
             for j in range(n):
-                phi_1 -= (1/2) * emission_pre_factors[j] * minplusPauli(j+1, minplusPauli(j+1, phi, minus=True), minus=False) * dt
-                phi_1 -= (1/2) * absorption_pre_factors[j] * minplusPauli(j+1, minplusPauli(j+1, phi, minus=False), minus=True) * dt
-            phi_new = (phi_1.copy())/((1-delta_p)**0.5)
-            #phi_new = phi_1/np.linalg.norm(phi_1)
+                # Spontaneous photon emission by qbit j+1 (qbit counting starts at 1, forloop starts at 0)
+                phi_b = minplusPauli(j+1, phi, minus=True)
+                phi_a = minplusPauli(j+1, phi_b, minus=False)
+                #phi_b_decomp = np.linalg.lstsq(eigenstates.T, phi_b, rcond=None)[0]
+                #print("------------------------------")
+                #print("phi:", np.linalg.norm(phi), "\n", phi.round(3))
+                #print("phi_b", np.linalg.norm(phi_b), "\n", phi_b.round(3))
+                #print("eigenstates\n", eigenstates.round(3))
+                #print("phi_b_decomp", np.linalg.norm(phi_b_decomp), "\n", phi_b_decomp.round(3))
+                #print("-----------------------------")
+                #if np.linalg.norm(phi_b_decomp) > 0:
+                #phi_b_decomp *= np.linalg.norm(phi_b)/np.linalg.norm(phi_b_decomp)
+                #else:
+                #    phi_b_decomp *= 0
+                #phi_a_decomp = np.linalg.lstsq(eigenstates.T, phi_a, rcond=None)[0]
+                #if np.linalg.norm(phi_a_decomp) > 0:
+                #phi_a_decomp *= np.linalg.norm(phi_a)/np.linalg.norm(phi_a_decomp)
+                #else:
+                #    phi_a_decomp *= 0
+                energy_b, energy_a = ((np.conj(phi_b)*phi_b) @ eigenvalues).real, ((np.conj(phi_a)*phi_a) @ eigenvalues).real
+                #if abs(energy_a) > 2.3 or abs(energy_b) > 2.3:
+                #    print("phi:", np.linalg.norm(phi), "\n", phi.round(3))
+                #    print("phi_b", np.linalg.norm(phi_b), "\n", phi_b.round(3))
+                #    print("phi_a", np.linalg.norm(phi_a), "\n", phi_a.round(3))
+                #    print("eigenvalues\n", eigenvalues)
+                #    print("energies\n", energy_b, energy_a)
+                #    sys.exit("energy diverging!")
+                if energy_a > energy_b: 
+                    emission_pre_factors.append((N(energy_a, energy_b)+1) * g(energy_a, energy_b))
+                    #pre_factors.append((N(energy_a, energy_b)+1) * g(energy_a, energy_b))
+                else: 
+                    emission_pre_factors.append(N(energy_a, energy_b) * g(energy_a, energy_b))
+                    #pre_factors.append(N(energy_a, energy_b) * g(energy_a, energy_b))
 
-        else:
-            max_prob = max(delta_p_list)
-            index = np.argmax(delta_p_list)
-            site = int(index/2) # Counting starts at zero here
-            if index%2==0:
-                print("spontaneous emission!")
-                phi_new = emission_pre_factors[site]**0.5 * minplusPauli(site+1, phi, minus=True)/((max_prob/dt)**0.5)
+                #delta_p_list.append(emission_pre_factors[j] * (np.conj(phi) @ minplusPauli(j+1, minplusPauli(j+1, phi, minus=True), minus=False)) * dt)
+                delta_p_list.append(emission_pre_factors[j] * (np.conj(phi_a) @ phi_a) * dt)
+
+                # Absorption of photon by qbit j+1
+                phi_b = minplusPauli(j+1, phi, minus=False)
+                phi_a = minplusPauli(j+1, phi_b, minus=True)
+
+                #phi_b_decomp = np.linalg.lstsq(eigenstates.T, phi_b, rcond=None)[0]
+                #if np.linalg.norm(phi_b_decomp) > 0:
+                #phi_b_decomp *= np.linalg.norm(phi_b)/np.linalg.norm(phi_b_decomp)
+                #else:
+                #    phi_b_decomp *= 0
+                #phi_a_decomp = np.linalg.lstsq(eigenstates.T, phi_a, rcond=None)[0]
+                #if np.linalg.norm(phi_b_decomp) > 0:
+                #phi_a_decomp *= np.linalg.norm(phi_a)/np.linalg.norm(phi_a_decomp)
+                #else:
+                #    phi_a_decomp *= 0
+                energy_b, energy_a = ((np.conj(phi_b)*phi_b) @ eigenvalues).real, ((np.conj(phi_a)*phi_a) @ eigenvalues).real
+                if energy_a > energy_b:
+                    absorption_pre_factors.append((N(energy_a, energy_b)+1) * g(energy_a, energy_b))
+                else:
+                    absorption_pre_factors.append(N(energy_a, energy_b) * g(energy_a, energy_b))
+                #delta_p_list.append(absorption_pre_factors[j] * (np.conj(phi) @ minplusPauli(j+1, minplusPauli(j+1, phi, minus=False), minus=True)) * dt)
+                delta_p_list.append(absorption_pre_factors[j] * (np.conj(phi_a) @ phi_a) * dt)
+
+
+            delta_p = np.sum(delta_p_list)
+            epsilon = random.rand()
+            epsilon = 10
+    
+            if delta_p > 0.1:
+                print("Warning! delta_p is getting large, must be much smaller than 1. Current value:", delta_p)
+
+            if epsilon > delta_p:   # -> No emission/absorption
+                #phi_1 = phi - complex(0,1) * (zPauli(1,phi) + zPauli(2,phi)) * dt 
+                phi_1 = phi - complex(0,1) * (H_diag @ phi) * dt
+                for m in range(n):
+                    phi_1 -= (1/2) * emission_pre_factors[m] * minplusPauli(m+1, minplusPauli(m+1, phi, minus=True), minus=False) * dt
+                    phi_1 -= (1/2) * absorption_pre_factors[m] * minplusPauli(m+1, minplusPauli(m+1, phi, minus=False), minus=True) * dt
+                phi_new = (phi_1.copy())/((1-delta_p)**0.5)
+                #phi_new = phi_1
+
             else:
-                print("absorption!")
-                phi_new = absorption_pre_factors[site]**0.5 * minplusPauli(site+1, phi, minus=False)/((max_prob/dt)**0.5)
+                max_prob = max(delta_p_list)
+                index = np.argmax(delta_p_list)
+                site = int(index/2) # Counting starts at zero here
+                if index%2==0:
+                    print("spontaneous emission!")
+                    phi_new = emission_pre_factors[site]**0.5 * minplusPauli(site+1, phi, minus=True)/((max_prob/dt)**0.5)
+                else:
+                    print("absorption!")
+                    phi_new = absorption_pre_factors[site]**0.5 * minplusPauli(site+1, phi, minus=False)/((max_prob/dt)**0.5)
        
 
-            phi_norm = np.linalg.norm(phi_new)
-            if phi_norm < 0.9 or phi_norm > 1.1:
-                print("norm diverging from 1:", phi_norm)
+            #phi_norm = np.linalg.norm(phi_new)
+            #if phi_norm < 0.9 or phi_norm > 1.1:
+                #print("norm diverging from 1:", phi_norm)
 
 
-        conv[:,i] = np.absolute(phi_new-phi)
-        convv[0,i] = (phi_new[-1]).real
-        convv[1,i] = (phi_new[-1]).imag
-        convv[2,i] = np.absolute(phi_new[-1])
-        convv[3,i] = (phi_new[-2]).real
-        convv[4,i] = (phi_new[-2]).imag
-        convv[5,i] = np.absolute(phi_new[-2])
-
-        phi = phi_new
-
-        #phi_len = np.linalg.norm(phi)
-        #if phi_len > 1.5 or phi_len < 0.5:
-            #print("phi not normalized properly. Its norm is\n", phi_len)
-    
-
-    for index in range (2**n):
-        plt.plot(np.linspace(0,iterations-1,iterations), conv[index], 'ro', markersize=2)
-        plt.title("phi_new - phi")
-        plt.show()
+            #conv[:,i] = np.absolute(phi_new-phi)
+            for l in range(2**n):
+                index = l*3
+                convv[index,i] = (phi_new[l]).real
+                convv[index+1,i] = (phi_new[l]).imag
+                convv[index+2,i] = np.absolute(phi_new[l])
 
 
-    plt.plot(np.linspace(0,iterations-1,iterations), convv[0], 'go', markersize=1, label="real")
-    plt.plot(np.linspace(0,iterations-1,iterations), convv[1], 'bo', markersize=1, label="imag")
-    plt.plot(np.linspace(0,iterations-1,iterations), convv[2], 'ro', markersize=1, label="norm")
-    plt.legend()
-    plt.show()
-    plt.plot(np.linspace(0,iterations-1,iterations), convv[3], 'go', markersize=1, label="real")
-    plt.plot(np.linspace(0,iterations-1,iterations), convv[4], 'bo', markersize=1, label="imag")
-    plt.plot(np.linspace(0,iterations-1,iterations), convv[5], 'ro', markersize=1, label="norm")
-    plt.legend()
-    plt.show()
+            phi = phi_new
+
+        phi_len = np.linalg.norm(phi)
+        if phi_len > 1.3 or phi_len < 0.7:
+            print("phi norm:", phi_len)
+            sys.exit("phi not normalized properly")
 
 
-    print("new phi\n", phi.round(decimals=3))
+
+    fig, ax = plt.subplots(2,2, sharex=True, sharey=False, figsize=(15,11))
+    iteration_list = np.linspace(0,iterations-1,iterations)
+    nth_element = 10
+    for j in range(2**n):
+        index = j*3
+        grid_index1 = 0 if (j==0 or j==1) else 1
+        grid_index2 = 0 if (j==0 or j==2) else 1
+        
+
+        ax[grid_index1, grid_index2].plot(iteration_list[::nth_element], convv[index][::nth_element], 'go', markersize=0.3, label="real")
+        ax[grid_index1, grid_index2].plot(iteration_list[::nth_element], convv[index+1][::nth_element], 'bo', markersize=0.3, label="imag")
+        ax[grid_index1, grid_index2].plot(iteration_list[::nth_element], convv[index+2][::nth_element], 'ro', markersize=0.3, label="norm")
+        ax[grid_index1, grid_index2].axvline(x=1/ds, color='purple')
+        ax[grid_index1, grid_index2].set_ylim(-1.05, 1.05)
+        ax[grid_index1, grid_index2].set_title("Phi component {}".format(j+1))
+    ax[1, 1].legend()
+    plt.savefig('AdiabaticAnnealing2.png', bbox_inches='tight')
+
+
+    print("absolute phi\n", np.absolute(phi).round(decimals=3))
     print("phi norm:", np.linalg.norm(phi))
 
     return None
@@ -528,6 +549,125 @@ def PreFactors2():
         absorption_pre_factors.append(absorption_pre_factor)
 
     return emission_pre_factors, absorption_pre_factors
+
+def MCWF(phi):
+    print("initial phi\n", phi)
+    dt_ds_ratio = 3
+    ds = 0.00005 
+    dt = dt_ds_ratio * ds 
+    iterations_s = int(1.15*int(1/ds))
+    iterations_t = 3
+
+    convv = np.ones((3*2**n,iterations_s))*99
+
+    for i in tqdm(range(iterations_s)):
+        s = min(i * ds, 1)
+        H, H_diag, eigenstates, eigenvalues = Hamiltoneon(s)
+        phi_decomp = np.array([np.conj(phi) @ eigenstate for eigenstate in eigenstates])
+        phi_decomp_norm = np.linalg.norm(phi_decomp)
+        if phi_decomp_norm > 1.3:
+            print(phi_decomp_norm)
+            sys.exit("phi_decomp norm diverging")
+        for j in range(iterations_t):
+            # COMPUTE PRE-FACTORS AND \delta_p
+            pre_factors = []
+            delta_p_list = []
+            counter_list = []
+            for a in range(2**n):
+                energy_a = eigenvalues[a]
+                for b in range(2**n):
+                    energy_b = eigenvalues[b]
+                    if a==b:
+                        continue
+                    # Spontaneous emission
+                    if energy_a > energy_b:
+                        pre_factors.append((N(energy_a, energy_b)+1) * g(energy_a, energy_b))
+                        photon_type = "em"
+                    # Absorption
+                    elif energy_a < energy_b:
+                        pre_factors.append(N(energy_b, energy_a) * g(energy_a, energy_b))
+                        photon_type = "abs"
+                    # Degenerate eigenvalues (energy_a = energy_b)
+                    else:
+                        pre_factors.append(0)
+                        photon_type = "None"
+
+
+                    delta_p_list.append(pre_factors[-1] * (np.conj(phi_decomp) @ C(b,a, C(a,b,phi_decomp))) * dt) # Can be made faster!
+                    counter_list.append([a,b, photon_type])
+
+            delta_p = np.sum(delta_p_list)
+            epsilon = random.random()
+
+            if delta_p > 0.1:
+                print("Warning! delta_p is getting large, must be much smaller than 1. Current value:", delta_p)
+
+            if epsilon > delta_p:   # -> No emission/absorption
+                phi_1 = phi_decomp - complex(0,1) * (H @ phi_decomp) * dt
+                counter = 0
+                for a in range(2**n):
+                    energy_a = eigenvalues[a]
+                    for b in range(2**n):
+                        energy_b = eigenvalues[b]
+                        if a==b:
+                            continue
+                        phi_1 -= (1/2) * pre_factors[counter] * C(b,a, C(a,b,phi_decomp)) * dt # Can be made faster!
+                        counter += 1
+                phi_new = (phi_1.copy())/((1-delta_p)**0.5)
+
+            else:
+                delta_p_list = np.real(delta_p_list)
+                index = random.choices(range(len(delta_p_list)), delta_p_list)[0]
+                delta_p_m = delta_p_list[index]
+                a, b, photon_type = counter_list[index]
+                if photon_type == "em":
+                    print("spontaneous emission!")
+                elif photon_type == "abs":
+                    print("absorption!")
+                else:
+                    print("Very odd")
+                phi_new = pre_factors[index]**0.5 * (C(a,b,phi_decomp)/((delta_p_m/dt)**0.5))
+
+            phi_decomp = phi_new.copy()
+
+        # Back to old basis
+        phi = eigenstates.T @ phi_decomp #np.array([np.sum(phi_decomp[z]*eigenstates[:,z]) for z in range(2**n)])
+
+        for k in range(2**n):
+            index = k*3
+            convv[index,i] = (phi[k]).real
+            convv[index+1,i] = (phi[k]).imag
+            convv[index+2,i] = np.absolute(phi[k])
+
+        phi_len = np.linalg.norm(phi)
+        if phi_len > 1.3 or phi_len < 0.7:
+            print("phi norm:", phi_len)
+            sys.exit("phi not normalized properly")
+
+
+    fig, ax = plt.subplots(2,2, sharex=True, sharey=False, figsize=(15,11))
+    iteration_list = np.linspace(0,iterations_s-1,iterations_s)
+    nth_element = 10
+    for j in range(2**n):
+        index = j*3
+        grid_index1 = 0 if (j==0 or j==1) else 1
+        grid_index2 = 0 if (j==0 or j==2) else 1
+
+
+        ax[grid_index1, grid_index2].plot(iteration_list[::nth_element], convv[index][::nth_element], 'go', markersize=0.3, label="real")
+        ax[grid_index1, grid_index2].plot(iteration_list[::nth_element], convv[index+1][::nth_element], 'bo', markersize=0.3, label="imag")
+        ax[grid_index1, grid_index2].plot(iteration_list[::nth_element], convv[index+2][::nth_element], 'ro', markersize=0.3, label="norm")
+        ax[grid_index1, grid_index2].axvline(x=1/ds, color='purple')
+        ax[grid_index1, grid_index2].set_ylim(-1.05, 1.05)
+        ax[grid_index1, grid_index2].set_title("Phi component {}".format(j+1))
+    ax[1, 1].legend()
+    plt.savefig('AdiabaticAnnealing2.png', bbox_inches='tight')
+
+
+    print("absolute phi\n", np.absolute(phi).round(decimals=3))
+    print("phi norm:", np.linalg.norm(phi))
+
+    return None
 
 
 def PreFactors(phi):
@@ -570,24 +710,27 @@ def TestFcn(rho):
 
 
 
-T = 1#0.008#0.008
+T = 0.5#0.008#0.008
 lam_sq = 1
 n = 2 # number of qbits
 
 
 
 
-initial_rho = (1/n**0.5) * np.ones((2**n, 2**n))
+#initial_rho = (1/n**0.5) * np.ones((2**n, 2**n))
 #initial_phi = (1/(2**n)**0.5) * np.ones(2**n)
-initial_phi = np.array([0.5, -0.5**(0.5), 0.5, 0], dtype=complex)
+#initial_phi = np.array([-0.5, 0, 0.5, 0.5**(0.5)], dtype=complex)
+initial_phi = np.array([0.5, -0.5, -0.5, 0.5], dtype=complex)
+#initial_phi = initial_phi/np.linalg.norm(initial_phi)
+#initial_phi = np.array([0, 0, 0, 1])
 #initial_rho = np.zeros((2**n,2**n))
 #initial_rho[3,3] = 1
 
-vec_initial_rho = initial_rho.flatten(order='F')
+#vec_initial_rho = initial_rho.flatten(order='F')
 
-random_state1 = np.ones((2**n, 2**n))
-random_state2 = np.identity(2**n)
-random_state3 = np.arange(4**n).reshape((2**n,2**n))
+#random_state1 = np.ones((2**n, 2**n))
+#random_state2 = np.identity(2**n)
+#random_state3 = np.arange(4**n).reshape((2**n,2**n))
 
 #print("initial", initial_phi)
 #print("first", zPauli(1,initial_phi))
