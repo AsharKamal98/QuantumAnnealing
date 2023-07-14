@@ -115,10 +115,10 @@ def minplusPauli(site, state, act_from_left=True, minus=None):
 
     return transformed_state
 
-def C(a,b, phi):
-    phi_new = np.zeros(2**n, dtype=complex)
-    phi_new[b] = phi[a].copy()
-    return phi_new
+def C(a,b, phii):
+    phi_prime = np.zeros(phii.shape[0], dtype=complex)
+    phi_prime[b] = phii[a].copy()
+    return phi_prime
          
 
 def RemoveGroundState(site, state, act_from_left=True):
@@ -157,30 +157,29 @@ def HamiltoneonOperator():
     H = np.kron(sz, I) + np.kron(I, sz)
     return H
 
-def Hamiltoneon(s):
+def Hamiltoneon(s, n):
     sz = np.array([[1,0],[0,-1]])
     sx = np.array([[0,1],[1,0]])
-    I = np.identity(n)
+    I = np.identity(2)
 
-    H = (np.kron(sx, I) + np.kron(I, sx))*(1-s) - (np.kron(sz, I) + np.kron(I, sz))*s
-    #P, H_diag = Matrix(H).diagonalize()
-    #eigenvalues = np.array(np.diag(H_diag))
-    #eigenstates = np.array([np.identity(2**n)[:,i] for i in range(2**n)])
-    #print("Hamiltoneon:\n", H)
+    if n==2:
+        H = (np.kron(sx, I) + np.kron(I, sx))*(1-s) + (np.kron(sz, I) + np.kron(I, sz))*s
+    elif n==3:
+        H = (np.kron(sx, np.kron(I, I)) + np.kron(I, np.kron(sx, I)) + np.kron(I, np.kron(I, sx)))*(1-s) + \
+            (np.kron(sz, np.kron(I, I)) + np.kron(I, np.kron(sz, I)) + np.kron(I, np.kron(I, sz)))*s
+    elif n==4:
+        H = (np.kron(sx, np.kron(I, np.kron(I, I))) + np.kron(I, np.kron(sx, np.kron(I, I))) + np.kron(I, np.kron(I, np.kron(sx, I))) + np.kron(I, np.kron(I, np.kron(I, sx))))*(1-s) + \
+            (np.kron(sz, np.kron(I, np.kron(I, I))) + np.kron(I, np.kron(sz, np.kron(I, I))) + np.kron(I, np.kron(I, np.kron(sz, I))) + np.kron(I, np.kron(I, np.kron(I, sz))))*s
+
+
     eigenvalues, eigenstates = np.linalg.eigh(H)
     #eigenstates = np.array([eigenstate/np.linalg.norm(eigenstate) for eigenstate in eigenstates]) # Needed?
-
-    H_diag = np.diag(eigenvalues)
-
-    #eigenvalues, eigenvectors = eigenvalues.round(decimals=5), eigenvectors.round(decimals=5)
-
-    #print("Eigenvectors:\n", eigenstates)
+    
+    #print("Hamiltoneon:\n", H)
+    #print("Eigenvectors:\n", eigenstates.T)
     #print("Eigenvalues:\n", eigenvalues)
-    #H_diag = np.array([eigenvalues[i]*eigenvectors[i] for i in range(2**n)]).T
 
-
-
-    return H, H_diag, eigenstates.T, eigenvalues
+    return H, eigenstates.T, eigenvalues
 
 
 
@@ -203,7 +202,7 @@ def N(x, y):
     if x.imag > 0.01 or y.imag > 0.01:
         sys.exit("complex eigenvalues in N function!")
 
-    N = 1/(math.exp(beta*(abs(x-y)))-1) if round(abs(x-y), 3)>0 else 0
+    N = 1/(math.exp(beta*(abs(x-y)))-1) if round(abs(x-y), 4)>0 else 0
     return N
 
 
@@ -457,7 +456,6 @@ def MCWF2(phi):
                     phi_1 -= (1/2) * emission_pre_factors[m] * minplusPauli(m+1, minplusPauli(m+1, phi, minus=True), minus=False) * dt
                     phi_1 -= (1/2) * absorption_pre_factors[m] * minplusPauli(m+1, minplusPauli(m+1, phi, minus=False), minus=True) * dt
                 phi_new = (phi_1.copy())/((1-delta_p)**0.5)
-                #phi_new = phi_1
 
             else:
                 max_prob = max(delta_p_list)
@@ -550,19 +548,21 @@ def PreFactors2():
 
     return emission_pre_factors, absorption_pre_factors
 
-def MCWF(phi):
-    print("initial phi\n", phi)
-    dt_ds_ratio = 3
-    ds = 0.00005 
+def MCWF(phi, n, plot_phi_history=True):
+    #print("initial phi\n", phi)
+    dt_ds_ratio = 2
+    ds = 0.000025 
     dt = dt_ds_ratio * ds 
-    iterations_s = int(1.15*int(1/ds))
-    iterations_t = 3
+    #iterations_s = int(1.15*int(1/ds))
+    iterations_s = int(1/ds)
+    iterations_t = 10
 
-    convv = np.ones((3*2**n,iterations_s))*99
+    phi_history_z = np.ones((3*2**n,iterations_s))*99
+    phi_history_x = np.ones((3*2**n,iterations_s))*99
 
     for i in tqdm(range(iterations_s)):
         s = min(i * ds, 1)
-        H, H_diag, eigenstates, eigenvalues = Hamiltoneon(s)
+        H, eigenstates, eigenvalues = Hamiltoneon(s, n)
         phi_decomp = np.array([np.conj(phi) @ eigenstate for eigenstate in eigenstates])
         phi_decomp_norm = np.linalg.norm(phi_decomp)
         if phi_decomp_norm > 1.3:
@@ -573,6 +573,7 @@ def MCWF(phi):
             pre_factors = []
             delta_p_list = []
             counter_list = []
+            energy_list = []
             for a in range(2**n):
                 energy_a = eigenvalues[a]
                 for b in range(2**n):
@@ -595,6 +596,7 @@ def MCWF(phi):
 
                     delta_p_list.append(pre_factors[-1] * (np.conj(phi_decomp) @ C(b,a, C(a,b,phi_decomp))) * dt) # Can be made faster!
                     counter_list.append([a,b, photon_type])
+                    energy_list.append([energy_a, energy_b])
 
             delta_p = np.sum(delta_p_list)
             epsilon = random.random()
@@ -620,111 +622,126 @@ def MCWF(phi):
                 index = random.choices(range(len(delta_p_list)), delta_p_list)[0]
                 delta_p_m = delta_p_list[index]
                 a, b, photon_type = counter_list[index]
-                if photon_type == "em":
-                    print("spontaneous emission!")
-                elif photon_type == "abs":
-                    print("absorption!")
-                else:
-                    print("Very odd")
-                phi_new = pre_factors[index]**0.5 * (C(a,b,phi_decomp)/((delta_p_m/dt)**0.5))
-
+                #if photon_type == "em":
+                #    print("spontaneous emission!")
+                #elif photon_type == "abs":
+                #    print("absorption!")
+                #else:
+                #    print("Very odd")
+                phi_new = pre_factors[index]**0.5 * (C(a,b,phi_decomp.copy())/((delta_p_m/dt)**0.5))
+                #print("phi before", phi_decomp.round(decimals=2))
+                #print("phi after", phi_new.round(decimals=2))
+                #print("energy_a", energy_list[index][0])
+                #print("energy_b", energy_list[index][1])
+                #print("energy difference", energy_list[index][0]-energy_list[index][1])
             phi_decomp = phi_new.copy()
 
         # Back to old basis
-        phi = eigenstates.T @ phi_decomp #np.array([np.sum(phi_decomp[z]*eigenstates[:,z]) for z in range(2**n)])
+        phi = eigenstates.T @ phi_decomp
 
-        for k in range(2**n):
-            index = k*3
-            convv[index,i] = (phi[k]).real
-            convv[index+1,i] = (phi[k]).imag
-            convv[index+2,i] = np.absolute(phi[k])
+        if plot_phi_history:
+            for k in range(2**n):
+                index = k*3
+                phi_history_z[index,i] = (phi[k]).real
+                phi_history_z[index+1,i] = (phi[k]).imag
+                phi_history_z[index+2,i] = np.absolute(phi[k])
+
+                phi_history_x[index,i] = (phi_decomp[k]).real
+                phi_history_x[index+1,i] = (phi_decomp[k]).imag
+                phi_history_x[index+2,i] = np.absolute(phi_decomp[k])
+
+
 
         phi_len = np.linalg.norm(phi)
         if phi_len > 1.3 or phi_len < 0.7:
             print("phi norm:", phi_len)
-            sys.exit("phi not normalized properly")
+            #sys.exit("phi not normalized properly")
+            print("phi not normalized properly #################################################")
+            return np.zeros(2**n)
 
 
-    fig, ax = plt.subplots(2,2, sharex=True, sharey=False, figsize=(15,11))
-    iteration_list = np.linspace(0,iterations_s-1,iterations_s)
-    nth_element = 10
-    for j in range(2**n):
-        index = j*3
-        grid_index1 = 0 if (j==0 or j==1) else 1
-        grid_index2 = 0 if (j==0 or j==2) else 1
+    if plot_phi_history:
+        #fig_z, ax_z = plt.subplots(2,4, sharex=True, sharey=False, figsize=(20,10))
+        #fig_x, ax_x = plt.subplots(2,4, sharex=True, sharey=False, figsize=(20,10))
+        fig_z, ax_z = plt.subplots(4,4, sharex=True, sharey=False, figsize=(10,10))
+        fig_x, ax_x = plt.subplots(4,4, sharex=True, sharey=False, figsize=(10,10))
+        iteration_list = np.linspace(0,iterations_s-1,iterations_s)
+        nth_element = 2
+        for j in range(2**n):
+            index = j*3
+            grid_index1 = int(j/4) #0 if j<4 else 1
+            grid_index2 = j%4
+
+            ax_z[grid_index1, grid_index2].plot(iteration_list, phi_history_z[index], 'go', markersize=1, label="real")
+            ax_z[grid_index1, grid_index2].plot(iteration_list, phi_history_z[index+1], 'bo', markersize=1, label="imag")
+            ax_z[grid_index1, grid_index2].plot(iteration_list, phi_history_z[index+2], 'ro', markersize=1, label="norm")
+            ax_z[grid_index1, grid_index2].axvline(x=1/ds, color='purple')
+            ax_z[grid_index1, grid_index2].set_ylim(-1.05, 1.05)
+            ax_z[grid_index1, grid_index2].set_title("Phi component {}".format(j+1))
+
+            ax_x[grid_index1, grid_index2].plot(iteration_list, phi_history_x[index], 'go', markersize=1, label="real")
+            ax_x[grid_index1, grid_index2].plot(iteration_list, phi_history_x[index+1], 'bo', markersize=1, label="imag")
+            ax_x[grid_index1, grid_index2].plot(iteration_list, phi_history_x[index+2], 'ro', markersize=1, label="norm")
+            ax_x[grid_index1, grid_index2].axvline(x=1/ds, color='purple')
+            ax_x[grid_index1, grid_index2].set_ylim(-1.05, 1.05)
+            ax_x[grid_index1, grid_index2].set_title("Phi component {}".format(j+1))
+
+        ax_z[1,1].legend()
+        ax_x[1,1].legend()
+        fig_z.savefig('AdiabaticAnnealing_z.png', bbox_inches='tight')
+        fig_x.savefig('AdiabaticAnnealing_x.png', bbox_inches='tight')
 
 
-        ax[grid_index1, grid_index2].plot(iteration_list[::nth_element], convv[index][::nth_element], 'go', markersize=0.3, label="real")
-        ax[grid_index1, grid_index2].plot(iteration_list[::nth_element], convv[index+1][::nth_element], 'bo', markersize=0.3, label="imag")
-        ax[grid_index1, grid_index2].plot(iteration_list[::nth_element], convv[index+2][::nth_element], 'ro', markersize=0.3, label="norm")
-        ax[grid_index1, grid_index2].axvline(x=1/ds, color='purple')
-        ax[grid_index1, grid_index2].set_ylim(-1.05, 1.05)
-        ax[grid_index1, grid_index2].set_title("Phi component {}".format(j+1))
-    ax[1, 1].legend()
-    plt.savefig('AdiabaticAnnealing2.png', bbox_inches='tight')
-
-
-    print("absolute phi\n", np.absolute(phi).round(decimals=3))
+    print("absolute phi_decomp\n", np.absolute(phi_decomp).round(decimals=3))
+    #print("absolute phi\n", np.absolute(phi).round(decimals=3))
     print("phi norm:", np.linalg.norm(phi))
 
-    return None
+    return np.absolute(phi_decomp)
 
 
-def PreFactors(phi):
-    """ Computes pre_factors of all operators (emission and absorption operators for all sites). """
+def BoltzmanCheck(initial_phi, n, run_MCWF=False):
+    filename = "AverageProb2Q.txt"
+    if run_MCWF:
+        statistics = []
+        iterations = 30
+        for i in tqdm(range(iterations)):
+            phi = MCWF(initial_phi, n, plot_phi_history=False)
+            statistics.append(phi)
+        probabilities = np.absolute(np.array(statistics)).round(decimals=10)
 
-    eigenstates,eigenvalues = EigenSystem()
+        with open(filename, "a") as f:
+            for i in range(iterations):
+                for j in range(2**n):
+                    f.writelines(f'{probabilities[i,j]:<{15}}')
+                f.writelines("\n")
 
-    emission_pre_factors = []
-    absorption_pre_factors = []
+    with open(filename, "r") as f:
+        l = f.readlines()
+        probabilities = np.array([l[i].split() for i in range(len(l))])
+    probabilities = probabilities.astype(np.float64)
 
+    std_dev = np.std(probabilities,axis=0).round(decimals=10)
+    std_error = std_dev/(np.sqrt(len(l)))
+    avg_prob = np.sum(probabilities, axis=0)/len(l)
 
-
-    return emission_pre_factors, absorption_pre_factors
-
-
-def TestFcn(rho):
-    """ Ignore """
-
-    print("initial rho:\n", rho)
-    
-    a = 1
-    b = 2
-
-    E = PermMatrix(a,b)
-    delta = deltaMatrix(a)
-
-    #transf = (np.kron(np.identity(2**n), E) @ np.kron(E, np.identity(2**n))) @ (np.kron(np.identity(2**n), deltaMatrix(a)) @ np.kron(deltaMatrix(a), np.identity(2**n)))
-    #transf_rho = transf @ rho
-
-    #print(rho[a::2**n])
-    #print(rho[a*2**n:(a+1)*2**n])
-    #print(rho[b*2**n + b])
-
-    #rho_dot[a*2**n:(a+1)*2**n] += pre_factor * rho[a*2**n:(a+1)*2**n]   # Column a of rho matrix
-    #rho_dot[b*2**n + b]
-
-
-    #print("transformed rho:\n", transf_rho)
+    print("------------------------- SUMMARY ----------------------------")
+    print("All probabilities\n", probabilities.round(decimals=3))
+    print("Standard deviation\n", std_dev.round(decimals=3))
+    print("Standard error\n", std_error.round(decimals=3))
+    print("Averaged probabilities\n", avg_prob.round(decimals=3))
+    print("--------------------------  END ------------------------------")
     return None
 
 
 
-T = 0.5#0.008#0.008
+T = 1#0.008#0.008
 lam_sq = 1
-n = 2 # number of qbits
+num_qbits = 2
 
 
-
-
-#initial_rho = (1/n**0.5) * np.ones((2**n, 2**n))
-#initial_phi = (1/(2**n)**0.5) * np.ones(2**n)
-#initial_phi = np.array([-0.5, 0, 0.5, 0.5**(0.5)], dtype=complex)
-initial_phi = np.array([0.5, -0.5, -0.5, 0.5], dtype=complex)
-#initial_phi = initial_phi/np.linalg.norm(initial_phi)
-#initial_phi = np.array([0, 0, 0, 1])
-#initial_rho = np.zeros((2**n,2**n))
-#initial_rho[3,3] = 1
+#initial_phi = np.array([0.5, -0.5, -0.5, 0.5], dtype=complex)
+H, eigenstates, eigenvalues = Hamiltoneon(0, num_qbits)
+initial_phi = eigenstates[0]
 
 #vec_initial_rho = initial_rho.flatten(order='F')
 
@@ -745,7 +762,8 @@ initial_phi = np.array([0.5, -0.5, -0.5, 0.5], dtype=complex)
 #LindBladian(operator=True, rho=vec_initial_rho)
 #CrankNicholsan(vec_initial_rho)
 #DirectMethod(vec_initial_rho)
-MCWF(initial_phi)
+#MCWF(initial_phi, num_qbits)
+BoltzmanCheck(initial_phi, num_qbits, run_MCWF=True)
 #RemoveGroundState(2, initial_phi)
 #TestFcn(vec_initial_rho)
 
