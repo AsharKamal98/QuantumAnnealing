@@ -197,7 +197,7 @@ def Hamiltoneon(s, n):
     eigenvalues, eigenstates = np.linalg.eigh(H)
     #eigenstates = np.array([eigenstate/np.linalg.norm(eigenstate) for eigenstate in eigenstates]) # Needed?
     
-    print("Hamiltoneon:\n", H)
+    #print("Hamiltoneon:\n", H)
     #print("Eigenvectors:\n", eigenstates.T)
     #print("Eigenvalues:\n", eigenvalues)
 
@@ -343,23 +343,26 @@ def DirectMethod(rho):
 def MCWF(args):
     phi, n, plot_phi_history = args
     #print("initial phi\n", phi)
-    dt_ds_ratio = 2
-    ds = 0.000025 
+    dt_ds_ratio = 2 #2
+    ds = 0.00001 #0.000025 
     dt = dt_ds_ratio * ds 
     #iterations_s = int(1.15*int(1/ds))
     iterations_s = int(1/ds)
     iterations_t = 10
 
-    phi_history_z = np.ones((3*2**n,iterations_s))*99
-    phi_history_x = np.ones((3*2**n,iterations_s))*99
+    phi_history_z = np.ones((3*2**n,iterations_s+1))*99
+    phi_history_x = np.ones((3*2**n,iterations_s+1))*99
 
-    #for i in tqdm(range(iterations_s)):
-    for i in range(iterations_s):
+    for i in tqdm(range(iterations_s+1)):
+    #for i in range(iterations_s+1):
+
         s = min(i * ds, 1)
         H, eigenstates, eigenvalues = Hamiltoneon(s, n)
-        phi_decomp = np.array([np.conj(phi) @ eigenstate for eigenstate in eigenstates])
+        phi_decomp = np.array([np.conj(phi) @ eigenstate for eigenstate in eigenstates]) 
+        #phi_decomp = np.array([eigenstate @ np.conj(phi) for eigenstate in eigenstates]) 
+        #np.array([np.conj(phi) @ eigenstate for eigenstate in eigenstates]) # Wrong!
         phi_decomp_norm = np.linalg.norm(phi_decomp)
-        if phi_decomp_norm > 1.3:
+        if phi_decomp_norm > 1.3: #REMOVE
             print(phi_decomp_norm)
             sys.exit("phi_decomp norm diverging")
         for j in range(iterations_t):
@@ -367,7 +370,7 @@ def MCWF(args):
             pre_factors = []
             delta_p_list = []
             counter_list = []
-            energy_list = []
+            energy_list = [] #NOT USED
             for a in range(2**n):
                 energy_a = eigenvalues[a]
                 for b in range(2**n):
@@ -390,7 +393,7 @@ def MCWF(args):
 
                     delta_p_list.append(pre_factors[-1] * (np.conj(phi_decomp) @ C(b,a, C(a,b,phi_decomp))) * dt) # Can be made faster!
                     counter_list.append([a,b, photon_type])
-                    energy_list.append([energy_a, energy_b])
+                    energy_list.append([energy_a, energy_b]) #NOT USED
 
             delta_p = np.sum(delta_p_list)
             epsilon = random.random()
@@ -398,7 +401,8 @@ def MCWF(args):
             if delta_p > 0.1:
                 print("Warning! delta_p is getting large, must be much smaller than 1. Current value:", delta_p)
 
-            if epsilon > delta_p:   # -> No emission/absorption
+            #if epsilon > delta_p:   # -> No emission/absorption
+            if True:
                 phi_1 = phi_decomp - complex(0,1) * (H @ phi_decomp) * dt
                 counter = 0
                 for a in range(2**n):
@@ -442,7 +446,7 @@ def MCWF(args):
 
 
         phi_len = np.linalg.norm(phi)
-        if phi_len > 1.3 or phi_len < 0.7:
+        if phi_len > 1.1 or phi_len < 0.9:
             print("phi norm:", phi_len)
             #sys.exit("phi not normalized properly")
             print("phi not normalized properly #################################################")
@@ -452,14 +456,14 @@ def MCWF(args):
     if plot_phi_history:
         #fig_z, ax_z = plt.subplots(2,4, sharex=True, sharey=False, figsize=(20,10))
         #fig_x, ax_x = plt.subplots(2,4, sharex=True, sharey=False, figsize=(20,10))
-        fig_z, ax_z = plt.subplots(4,4, sharex=True, sharey=False, figsize=(10,10))
-        fig_x, ax_x = plt.subplots(4,4, sharex=True, sharey=False, figsize=(10,10))
-        iteration_list = np.linspace(0,iterations_s-1,iterations_s)
+        fig_z, ax_z = plt.subplots(2,2, sharex=True, sharey=False, figsize=(10,10))
+        fig_x, ax_x = plt.subplots(2,2, sharex=True, sharey=False, figsize=(10,10))
+        iteration_list = np.linspace(0,iterations_s,iterations_s+1)
         nth_element = 2
         for j in range(2**n):
             index = j*3
-            grid_index1 = int(j/4) #0 if j<4 else 1
-            grid_index2 = j%4
+            grid_index1 = int(j/2) #0 if j<4 else 1
+            grid_index2 = j%2
 
             ax_z[grid_index1, grid_index2].plot(iteration_list, phi_history_z[index], 'go', markersize=1, label="real")
             ax_z[grid_index1, grid_index2].plot(iteration_list, phi_history_z[index+1], 'bo', markersize=1, label="imag")
@@ -468,10 +472,10 @@ def MCWF(args):
             ax_z[grid_index1, grid_index2].set_ylim(-1.05, 1.05)
             ax_z[grid_index1, grid_index2].set_title("Phi component {}".format(j+1))
 
-            ax_x[grid_index1, grid_index2].plot(iteration_list, phi_history_x[index], 'go', markersize=1, label="real")
-            ax_x[grid_index1, grid_index2].plot(iteration_list, phi_history_x[index+1], 'bo', markersize=1, label="imag")
+            #ax_x[grid_index1, grid_index2].plot(iteration_list, phi_history_x[index], 'go', markersize=1, label="real")
+            #ax_x[grid_index1, grid_index2].plot(iteration_list, phi_history_x[index+1], 'bo', markersize=1, label="imag")
             ax_x[grid_index1, grid_index2].plot(iteration_list, phi_history_x[index+2], 'ro', markersize=1, label="norm")
-            ax_x[grid_index1, grid_index2].axvline(x=1/ds, color='purple')
+            #ax_x[grid_index1, grid_index2].axvline(x=1/ds, color='purple')
             ax_x[grid_index1, grid_index2].set_ylim(-1.05, 1.05)
             ax_x[grid_index1, grid_index2].set_title("Phi component {}".format(j+1))
 
@@ -481,6 +485,7 @@ def MCWF(args):
         fig_x.savefig('Figures/AdiabaticAnnealing_x.png', bbox_inches='tight')
 
 
+    print("\n---------------- SUMMARY --------------")
     print("absolute phi_decomp\n", np.absolute(phi_decomp).round(decimals=3))
     #print("absolute phi\n", np.absolute(phi).round(decimals=3))
     print("phi norm:", np.linalg.norm(phi))
@@ -492,9 +497,9 @@ def BoltzmanCheck(initial_phi, n, run_MCWF=False):
     filename = "AverageProb{}Q.txt".format(n)
     if run_MCWF:
         statistics = []
-        iterations = 50
+        iterations = 5
         input_args = [(initial_phi, n, False)] * iterations
-        with Pool(processes=25) as pool:
+        with Pool(processes=10) as pool:
             probs = list(tqdm(pool.imap(MCWF, input_args), total=len(input_args)))
         probs = np.array(probs).round(decimals=10)
 
@@ -520,12 +525,12 @@ def BoltzmanCheck(initial_phi, n, run_MCWF=False):
     std_error = std_dev/(np.sqrt(len(l)))
     avg_prob = np.sum(probs, axis=0)/len(l)
 
-    #print("------------------------- SUMMARY ----------------------------")
+    print("------------------------- SUMMARY ----------------------------")
     #print("All probabilities\n", probs.round(decimals=3))
-    #print("Standard deviation\n", std_dev.round(decimals=3))
-    #print("Standard error\n", std_error.round(decimals=3))
-    #print("Averaged probabilities\n", avg_prob.round(decimals=3))
-    #print("--------------------------  END ------------------------------")
+    print("Standard deviation\n", std_dev.round(decimals=3))
+    print("Standard error\n", std_error.round(decimals=3))
+    print("Averaged probabilities\n", avg_prob.round(decimals=3))
+    print("--------------------------  END ------------------------------")
     return avg_prob, std_dev, std_error
 
 
@@ -566,8 +571,8 @@ def PlotBoltzman(n):
 
 
 T = 1   #Minimum: 0.008
-lam_sq = 1
-num_qbits = 3
+lam_sq = 0.3
+num_qbits = 4
 
 
 H, eigenstates, eigenvalues = Hamiltoneon(0, num_qbits)
@@ -585,10 +590,10 @@ initial_phi = eigenstates[0]
 #minplusPauli(2, minplusPauli(2, initial_phi, minus=False), minus=True)
 #minplusPauli(2, random_state3, act_from_left=False, minus=False)
 #xPauli(n, 1, random_state2, act_from_left=True)
-Hamiltoneon(1, num_qbits)
+#Hamiltoneon(0, num_qbits)
 #LindBladian(operator=True, rho=vec_initial_rho)
 #DirectMethod(vec_initial_rho)
-#MCWF([initial_phi, num_qbits, False])
+MCWF([initial_phi, num_qbits, False])
 #BoltzmanCheck(initial_phi, num_qbits, run_MCWF=True)
 #PlotBoltzman(6)
 #Boltzman(num_qbits)
