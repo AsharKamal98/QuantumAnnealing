@@ -19,15 +19,16 @@
 
 using namespace std;
 using namespace Eigen;
+using namespace std::chrono;
 
 
 // =============== GLOBALLY DEFINED INPUTS ================== //
 // ========================================================== //
 
-const int num_qbits = 4;
-const int dim = pow(2,num_qbits);
-const double T = 1;
-const double lam_sq = 0.3;
+const int num_qbits = 7;
+//const int dim = pow(2,num_qbits);
+const double T = 1;	//0.5/1
+const double lam_sq = 1;	//1
 
 
 
@@ -236,6 +237,8 @@ EigenSystem Hamiltonian(const double s, const int n) {
 	// where 0 =< s =< 1. Corresponding eigenvectors and eigenvalues also computed.
 	// Returns EigenSystem data type.
 
+	int dim = pow(2,n);
+
 	EigenSystem eigensystem;
 	eigensystem.H = new MatrixXd(dim,dim);
 	eigensystem.eigenstates = new MatrixXd(dim,dim);
@@ -275,7 +278,8 @@ double N(const double x, const double y) {
 } 
 
 
-VectorXcd C(const int a, const int b, const VectorXcd phi) {
+VectorXcd C(const int n, const int a, const int b, const VectorXcd phi) {
+	int dim = pow(2,n);
 	VectorXcd phi_prime(dim);
 	phi_prime.setZero();
 	phi_prime(b) = phi(a);
@@ -283,14 +287,15 @@ VectorXcd C(const int a, const int b, const VectorXcd phi) {
 }
 
 
-bool MCWF(VectorXcd phi, const int n, const bool print_summary, ArrayXd& probs) {
+bool MCWF(VectorXcd phi, const int n, const bool print_summary, VectorXd& probs) {
 	//cout << "\nInitial phi \n" << phi.transpose() << "\n\n";
+	int dim = pow(2,n);
 
-	const double dt_ds_ratio = 2;
-	const double ds = 0.00001;
+	const double dt_ds_ratio = 0.9; // 1.8
+	const double ds = 0.000005;	//0.0001
 	const double dt = dt_ds_ratio * ds;
 	const int iterations_s = static_cast<int>(1/ds);
-	const int iterations_t = 10;
+	const int iterations_t = 10;	//10/3
 
 	ArrayXXd phi_history_z(iterations_s+1, dim);
 	ArrayXXd phi_history_x(iterations_s+1, dim);
@@ -298,6 +303,7 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, ArrayXd& probs) 
 	VectorXcd phi_decomp(dim);
 
 	//progressbar bar(iterations_s+1);
+	auto start = high_resolution_clock::now();
 	for (int i=0; i<=iterations_s; i++) {
 		//bar.update();
 		double s = i * ds;
@@ -331,14 +337,14 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, ArrayXd& probs) 
 						photon_type = 1;
 					// Degenerate eigenvalues (energy_a = energy_b)
 					} else {
-						pre_factors.push_back(1); 
+						pre_factors.push_back(0); 
 						photon_type = 0;	
 					}
 
 					counter_list1.push_back(a);
 					counter_list1.push_back(b);
 					counter_list2.push_back(photon_type);
-					complex<double> temp1 = phi_decomp.adjoint() * C(b,a, C(a,b,phi_decomp));		//Can be made faster!
+					complex<double> temp1 = phi_decomp.adjoint() * C(n,b,a, C(n,a,b,phi_decomp));		//Can be made faster!
 					double temp2 = temp1.real();
 					delta_p_list.push_back(pre_factors.back() * temp2 * dt);
 				}
@@ -353,8 +359,8 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, ArrayXd& probs) 
 			
 			VectorXcd phi_new(dim);
 			// No emission/absorption
-			//if (epsilon > delta_p) {
-			if (true) {
+			if (epsilon > delta_p) {
+			//if (true) {
 				VectorXcd phi_1 = phi_decomp - complex<double>(0,1) * (*eigensystem.H * phi_decomp) * dt;
 				int counter = 0;
 				for (int a=0; a<dim; a++) {
@@ -364,7 +370,7 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, ArrayXd& probs) 
 						if (a==b) {
 							continue;
 						}
-						phi_1 -= 0.5 * pre_factors[counter] * C(b,a, C(a,b,phi_decomp)) * dt;
+						phi_1 -= 0.5 * pre_factors[counter] * C(n,b,a, C(n,a,b,phi_decomp)) * dt;
 						counter++;
 					}
 				}
@@ -385,7 +391,7 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, ArrayXd& probs) 
 				//	cout << "\nODD!\n";
 				//}
 
-				phi_new = pow(pre_factors[index], 0.5) * (C(a,b,phi_decomp)/pow(delta_p_m/dt,0.5)); 		
+				phi_new = pow(pre_factors[index], 0.5) * (C(n,a,b,phi_decomp)/pow(delta_p_m/dt,0.5)); 		
 			}
 			phi_decomp = phi_new;
 
@@ -396,9 +402,8 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, ArrayXd& probs) 
 		phi = (*eigensystem.eigenstates).transpose() * phi_decomp;
 
 		
-		ArrayXd probs_z = phi.array().abs2();
-		ArrayXd probs_x = phi_decomp.array().abs2();
-
+		ArrayXd probs_z = phi.normalized().array().abs2();
+		ArrayXd probs_x = phi_decomp.normalized().array().abs2();
 		phi_history_z.row(i) = RoundVector(probs_z, 0.001);
 		phi_history_x.row(i) = RoundVector(probs_x, 0.001);
 
@@ -417,7 +422,7 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, ArrayXd& probs) 
 		}
 
 	}
-
+	auto stop = high_resolution_clock::now();
 
 	if (print_summary) {
 		ofstream f;
@@ -430,10 +435,14 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, ArrayXd& probs) 
 	}
 
 	
-	probs = phi.array().abs2();
+	VectorXd probs_unormalized = phi_decomp.array().abs2();
+	probs =  phi_decomp.normalized().array().abs2();
+	auto duration = duration_cast<milliseconds>(stop - start);
 	//cout << "\n\n------------- SUMMARY ------------\n";
-	cout << "Probabilities\n" << RoundVector(probs, 0.01).transpose() << "\n";
-	cout << "Norm: " << Round(phi_decomp.norm(), 0.001) << "\n\n";
+	//cout << "Probabilities\n" << RoundVector(probs_unormalized, 0.001).transpose() << "\n";
+	cout << "Phi norm: " << Round(phi_decomp.norm(), 0.001) << "\n";
+	//cout << "Normalized probabilities\n" << RoundVector(probs, 0.001).transpose() << "\n";
+	//cout << "Duration: " << duration.count() << endl;
 	//cout << "---------------- END ---------------\n";
 
 	return true;
@@ -444,8 +453,8 @@ void RunMCWF(VectorXcd phi, const int n) {
 	// Runs MCWF using multiprocessing. Additional input required below.
 
 	// Additional input
-	int num_proc = 30;
-	int num_simulations = 300;
+	int num_proc = 33;
+	int num_simulations = 99;
 	int iterations = num_simulations/num_proc;
 	string filename = "AverageProbCpp" + to_string(num_qbits) + "Q.txt";
 
@@ -466,7 +475,7 @@ void RunMCWF(VectorXcd phi, const int n) {
 
 			// Each child process runs MCWF multiple times.
 			for (int j=0; j<iterations; j++) {
-				ArrayXd probs;
+				VectorXd probs;
 				if (!MCWF(phi, num_qbits, false, probs)) {
 					continue;
 				}	
@@ -507,7 +516,7 @@ void RunMCWF(VectorXcd phi, const int n) {
 }
 
 double BoltzmanDist(const int n) {
-	EigenSystem eigensystem = Hamiltonian(0, num_qbits);
+	EigenSystem eigensystem = Hamiltonian(0, n);
 	double eigenvalue_min = (*eigensystem.eigenvalues).minCoeff();
 	
 	double Z = 0;
@@ -549,6 +558,7 @@ void CompareBoltzmanToMCWF(const int n) {
 	f.open("Statistics/AverageProbCppFinal.txt");
 	for (int i=0; i<plot_probs.size(); i++) {
 		double boltzman_prob = BoltzmanDist(i+2);
+		cout << boltzman_prob << endl;
 		f << i+2 << std::setw(10) << plot_probs[i] << std::setw(10) << plot_std_devs[i] << std::setw(10) <<  plot_std_errors[i] << std::setw(10) << boltzman_prob << "\n";
 	}
 	f.close();
@@ -557,16 +567,18 @@ void CompareBoltzmanToMCWF(const int n) {
 
 int main() {
 	//srand(time(0));
+	int dim = pow(2,num_qbits);
 	EigenSystem eigensystem = Hamiltonian(0, num_qbits);
 	VectorXd initial_phi(dim);
 	initial_phi = eigensystem.eigenstates->row(0);
-	ArrayXd probs;
+	VectorXd probs;
 
-	MCWF(initial_phi, num_qbits, true, probs);
-	//RunMCWF(initial_phi, num_qbits);
+	//MCWF(initial_phi, num_qbits, true, probs);
+	RunMCWF(initial_phi, num_qbits);
 	double b_prob = BoltzmanDist(num_qbits);
 	cout << "Boltzman Distribution: " << b_prob << "\n";
-	//CompareBoltzmanToMCWF(6);
+	
+	//CompareBoltzmanToMCWF(5);
 
 	delete eigensystem.H;
         delete eigensystem.eigenstates;
