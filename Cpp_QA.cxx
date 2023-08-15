@@ -25,10 +25,10 @@ using namespace std::chrono;
 // =============== GLOBALLY DEFINED INPUTS ================== //
 // ========================================================== //
 
-const int num_qbits = 2;
+const int num_qbits = 5;
 //const int dim = pow(2,num_qbits);
 const double T = 1;	//0.5/1
-const double lam_sq = 1;	//1
+const double lam_sq = 0.5;	//1
 
 
 
@@ -291,8 +291,8 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, VectorXd& probs)
 	//cout << "\nInitial phi \n" << phi.transpose() << "\n\n";
 	int dim = pow(2,n);
 
-	const double dt = 0.001;	//0.0001
-	const double AT = 5;
+	const double dt = 0.00001;	//0.0001
+	const double AT = 13;
 	const int iterations = static_cast<int>(AT/dt);
 
 	ArrayXXd phi_history_z(iterations+1, dim);
@@ -300,11 +300,11 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, VectorXd& probs)
 
 	VectorXcd phi_decomp(dim);
 
-	progressbar bar(iterations+1);
+	//progressbar bar(iterations+1);
 	auto start = high_resolution_clock::now();
 	for (int i=0; i<=iterations; i++) {
-		bar.update();
-		EigenSystem eigensystem = Hamiltonian(i*(dt/T), n);
+		//bar.update();
+		EigenSystem eigensystem = Hamiltonian(i*(dt/AT), n);
 		// z-basis to instataneous basis
 		phi_decomp = (*eigensystem.eigenstates) * phi.conjugate();
 
@@ -378,13 +378,13 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, VectorXd& probs)
 			int b = counter_list1[2*index+1];
 			int photon_type = counter_list2[index];
 
-			if (photon_type==-1) {
-				cout << "\nSpontaneous emission\n";
-			} else if (photon_type==1) {
-				cout << "\nAbsorption!\n";
-			} else {
-				cout << "\nODD!\n";
-			}
+			//if (photon_type==-1) {
+			//	cout << "\nSpontaneous emission\n";
+			//} else if (photon_type==1) {
+			//	cout << "\nAbsorption!\n";
+			//} else {
+			//	cout << "\nODD!\n";
+			//}
 
 			phi_new = pow(pre_factors[index], 0.5) * (C(n,a,b,phi_decomp)/pow(delta_p_m/dt,0.5)); 		
 		}
@@ -432,12 +432,12 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, VectorXd& probs)
 	VectorXd probs_unormalized = phi_decomp.array().abs2();
 	probs =  phi_decomp.normalized().array().abs2();
 	auto duration = duration_cast<milliseconds>(stop - start);
-	cout << "\n\n------------- SUMMARY ------------\n";
+	//cout << "\n\n------------- SUMMARY ------------\n";
 	//cout << "Probabilities\n" << RoundVector(probs_unormalized, 0.001).transpose() << "\n";
-	cout << "Phi norm: " << Round(phi_decomp.norm(), 0.001) << "\n";
-	cout << "Normalized probabilities\n" << RoundVector(probs, 0.001).transpose() << "\n";
-	cout << "Duration: " << duration.count() << endl;
-	cout << "---------------- END ---------------\n";
+	//cout << "Phi norm: " << Round(phi_decomp.norm(), 0.001) << "\n";
+	//cout << "Normalized probabilities\n" << RoundVector(probs, 0.001).transpose() << "\n";
+	//cout << "Duration: " << duration.count() << endl;
+	//cout << "---------------- END ---------------\n";
 
 	return true;
 }
@@ -447,10 +447,10 @@ void RunMCWF(VectorXcd phi, const int n) {
 	// Runs MCWF using multiprocessing. Additional input required below.
 
 	// Additional input
-	int num_proc = 50;
-	int num_simulations = 50;
+	int num_proc = 100;
+	int num_simulations = 1000;
 	int iterations = num_simulations/num_proc;
-	string filename = "AverageProbCpp" + to_string(num_qbits) + "Q.txt";
+	string filename = "NonEqAverageProbCpp" + to_string(num_qbits) + "Q.txt";
 
 	cout << "Initial_phi\n" << phi.transpose() << "\n";
 
