@@ -1,1 +1,7 @@
-hsdhdh
+################# BEFORE RUNNING #########################
+-----------------------------------------------
+1. 	Install the libraries:
+
+2. 	Before you can run the C++ MCWF called CPP_QA.cxx, you must include the neccessarry paths 
+	to the eigen and boost libraries. Execute the IncludePaths.sh bash scripts by "source IncludePaths.sh".
+	This will add the neccessarry paths to the $CPLUS_INCLUDE_PATH variable.
