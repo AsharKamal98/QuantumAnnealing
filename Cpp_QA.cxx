@@ -25,7 +25,7 @@ using namespace std::chrono;
 // =============== GLOBALLY DEFINED INPUTS ================== //
 // ========================================================== //
 
-const int num_qbits = 7;
+const int num_qbits = 2;
 //const int dim = pow(2,num_qbits);
 const double T = 1;	//0.5/1
 const double lam_sq = 1;	//1
@@ -291,115 +291,109 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, VectorXd& probs)
 	//cout << "\nInitial phi \n" << phi.transpose() << "\n\n";
 	int dim = pow(2,n);
 
-	const double dt_ds_ratio = 0.9; // 1.8
-	const double ds = 0.000005;	//0.0001
-	const double dt = dt_ds_ratio * ds;
-	const int iterations_s = static_cast<int>(1/ds);
-	const int iterations_t = 10;	//10/3
+	const double dt = 0.001;	//0.0001
+	const double AT = 5;
+	const int iterations = static_cast<int>(AT/dt);
 
-	ArrayXXd phi_history_z(iterations_s+1, dim);
-	ArrayXXd phi_history_x(iterations_s+1, dim);
+	ArrayXXd phi_history_z(iterations+1, dim);
+	ArrayXXd phi_history_x(iterations+1, dim);
 
 	VectorXcd phi_decomp(dim);
 
-	//progressbar bar(iterations_s+1);
+	progressbar bar(iterations+1);
 	auto start = high_resolution_clock::now();
-	for (int i=0; i<=iterations_s; i++) {
-		//bar.update();
-		double s = i * ds;
-		EigenSystem eigensystem = Hamiltonian(s, n);
+	for (int i=0; i<=iterations; i++) {
+		bar.update();
+		EigenSystem eigensystem = Hamiltonian(i*(dt/T), n);
 		// z-basis to instataneous basis
-		//phi_decomp = (*eigensystem.eigenstates).conjugate() * phi;
 		phi_decomp = (*eigensystem.eigenstates) * phi.conjugate();
 
-		for (int j=0; j<iterations_t; j++) {
-			std::vector<double> pre_factors;
-			std::vector<double> counter_list1;
-			std::vector <int> counter_list2;
-			std::vector<double> delta_p_list;
-			int photon_type; 		// 1 for abs, -1 for em, 0 for none
+		std::vector<double> pre_factors;
+		std::vector<double> counter_list1;
+		std::vector <int> counter_list2;
+		std::vector<double> delta_p_list;
+		int photon_type; 		// 1 for abs, -1 for em, 0 for none
 			
-		        // System goes from state a -> b during emission/absorption	
+		// System goes from state a -> b during emission/absorption	
+		for (int a=0; a<dim; a++) {
+			double energy_a = (*eigensystem.eigenvalues)(a);
+			for (int b=0; b<dim; b++) {
+				double energy_b = (*eigensystem.eigenvalues)(b);
+				if (a==b) { 
+					continue;
+				}
+				// Spontaneous emission (energy_a > energy_b)
+				if (Round(energy_a-energy_b, 0.01) > 0) {
+					pre_factors.push_back((N(energy_a, energy_b)+1)*lam_sq);
+					photon_type = -1;
+				// Absorption (energy_a < energy_b)
+				} else if (Round(energy_b-energy_a, 0.01) > 0) {
+					pre_factors.push_back(N(energy_b, energy_a)*lam_sq);
+					photon_type = 1;
+				// Degenerate eigenvalues (energy_a = energy_b)
+				} else {
+					pre_factors.push_back(0); 
+					photon_type = 0;	
+				}
+
+				counter_list1.push_back(a);
+				counter_list1.push_back(b);
+				counter_list2.push_back(photon_type);
+				complex<double> temp1 = phi_decomp.adjoint() * C(n,b,a, C(n,a,b,phi_decomp));		//Can be made faster!
+				double temp2 = temp1.real();
+				delta_p_list.push_back(pre_factors.back() * temp2 * dt);
+			}
+		}
+		double delta_p = std::accumulate(delta_p_list.begin(), delta_p_list.end(), 0.0);
+		double epsilon = (static_cast<double>(std::rand()) / RAND_MAX);
+			
+		if (delta_p > 0.1) {
+			cout << "\nWarning! delta_p  is getting large, must be much smaller than 1. Current value:" << delta_p << "\n";
+		}
+
+			
+		VectorXcd phi_new(dim);
+		// No emission/absorption
+		if (epsilon > delta_p) {
+		//if (true) {
+			VectorXcd phi_1 = phi_decomp - complex<double>(0,1) * (*eigensystem.H * phi_decomp) * dt;
+			int counter = 0;
 			for (int a=0; a<dim; a++) {
 				double energy_a = (*eigensystem.eigenvalues)(a);
-				for (int b=0; b<dim; b++) {
-					double energy_b = (*eigensystem.eigenvalues)(b);
-					if (a==b) { 
-						continue;
+			for (int b=0; b<dim; b++) {
+				double energy_b = (*eigensystem.eigenvalues)(b);
+				if (a==b) {
+					continue;
 					}
-					// Spontaneous emission (energy_a > energy_b)
-					if (Round(energy_a-energy_b, 0.01) > 0) {
-						pre_factors.push_back((N(energy_a, energy_b)+1)*lam_sq);
-						photon_type = -1;
-					// Absorption (energy_a < energy_b)
-					} else if (Round(energy_b-energy_a, 0.01) > 0) {
-						pre_factors.push_back(N(energy_b, energy_a)*lam_sq);
-						photon_type = 1;
-					// Degenerate eigenvalues (energy_a = energy_b)
-					} else {
-						pre_factors.push_back(0); 
-						photon_type = 0;	
-					}
-
-					counter_list1.push_back(a);
-					counter_list1.push_back(b);
-					counter_list2.push_back(photon_type);
-					complex<double> temp1 = phi_decomp.adjoint() * C(n,b,a, C(n,a,b,phi_decomp));		//Can be made faster!
-					double temp2 = temp1.real();
-					delta_p_list.push_back(pre_factors.back() * temp2 * dt);
+					phi_1 -= 0.5 * pre_factors[counter] * C(n,b,a, C(n,a,b,phi_decomp)) * dt;
+					counter++;
 				}
 			}
-			double delta_p = std::accumulate(delta_p_list.begin(), delta_p_list.end(), 0.0);
-			double epsilon = (static_cast<double>(std::rand()) / RAND_MAX);
-			
-			if (delta_p > 0.1) {
-				cout << "\nWarning! delta_p  is getting large, must be much smaller than 1. Current value:" << delta_p << "\n";
-			}
+			phi_new = phi_1/pow(1.0-delta_p,0.5);
+		// Emission/absorption
+		} else {
+			size_t index =  PickRandomWeightedElement(delta_p_list);	
+			double delta_p_m = delta_p_list[index];
+			int a = counter_list1[2*index];
+			int b = counter_list1[2*index+1];
+			int photon_type = counter_list2[index];
 
-			
-			VectorXcd phi_new(dim);
-			// No emission/absorption
-			if (epsilon > delta_p) {
-			//if (true) {
-				VectorXcd phi_1 = phi_decomp - complex<double>(0,1) * (*eigensystem.H * phi_decomp) * dt;
-				int counter = 0;
-				for (int a=0; a<dim; a++) {
-					double energy_a = (*eigensystem.eigenvalues)(a);
-					for (int b=0; b<dim; b++) {
-						double energy_b = (*eigensystem.eigenvalues)(b);
-						if (a==b) {
-							continue;
-						}
-						phi_1 -= 0.5 * pre_factors[counter] * C(n,b,a, C(n,a,b,phi_decomp)) * dt;
-						counter++;
-					}
-				}
-				phi_new = phi_1/pow(1.0-delta_p,0.5);
-			// Emission/absorption
+			if (photon_type==-1) {
+				cout << "\nSpontaneous emission\n";
+			} else if (photon_type==1) {
+				cout << "\nAbsorption!\n";
 			} else {
-				size_t index =  PickRandomWeightedElement(delta_p_list);	
-				double delta_p_m = delta_p_list[index];
-				int a = counter_list1[2*index];
-			       	int b = counter_list1[2*index+1];
-				int photon_type = counter_list2[index];
-
-				//if (photon_type==-1) {
-				//	cout << "\nSpontaneous emission\n";
-				//} else if (photon_type==1) {
-				//	cout << "\nAbsorption!\n";
-				//} else {
-				//	cout << "\nODD!\n";
-				//}
-
-				phi_new = pow(pre_factors[index], 0.5) * (C(n,a,b,phi_decomp)/pow(delta_p_m/dt,0.5)); 		
+				cout << "\nODD!\n";
 			}
-			phi_decomp = phi_new;
 
-
+			phi_new = pow(pre_factors[index], 0.5) * (C(n,a,b,phi_decomp)/pow(delta_p_m/dt,0.5)); 		
 		}
+		//phi_decomp = phi_new;
+
+
 		
 		// Instataneous basis to z-basis
-		phi = (*eigensystem.eigenstates).transpose() * phi_decomp;
+		phi = (*eigensystem.eigenstates).transpose() * phi_new;
 
 		
 		ArrayXd probs_z = phi.normalized().array().abs2();
@@ -416,7 +410,7 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, VectorXd& probs)
 		double phi_len = phi.norm();
 		if (phi_len>1.1 or phi_len<0.9) {
 			cout << "#######################################################################################\n";
-			cout << "Phi was not normalized properly, aborting at  " << static_cast<double>(i)/iterations_s << "\n";
+			cout << "Phi was not normalized properly, aborting at  " << static_cast<double>(i)/iterations << "\n";
 			cout << "phi norm: " << phi_len << "\n\n";
 			return false;
 		}
@@ -438,12 +432,12 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, VectorXd& probs)
 	VectorXd probs_unormalized = phi_decomp.array().abs2();
 	probs =  phi_decomp.normalized().array().abs2();
 	auto duration = duration_cast<milliseconds>(stop - start);
-	//cout << "\n\n------------- SUMMARY ------------\n";
+	cout << "\n\n------------- SUMMARY ------------\n";
 	//cout << "Probabilities\n" << RoundVector(probs_unormalized, 0.001).transpose() << "\n";
 	cout << "Phi norm: " << Round(phi_decomp.norm(), 0.001) << "\n";
-	//cout << "Normalized probabilities\n" << RoundVector(probs, 0.001).transpose() << "\n";
-	//cout << "Duration: " << duration.count() << endl;
-	//cout << "---------------- END ---------------\n";
+	cout << "Normalized probabilities\n" << RoundVector(probs, 0.001).transpose() << "\n";
+	cout << "Duration: " << duration.count() << endl;
+	cout << "---------------- END ---------------\n";
 
 	return true;
 }
@@ -453,8 +447,8 @@ void RunMCWF(VectorXcd phi, const int n) {
 	// Runs MCWF using multiprocessing. Additional input required below.
 
 	// Additional input
-	int num_proc = 33;
-	int num_simulations = 99;
+	int num_proc = 50;
+	int num_simulations = 50;
 	int iterations = num_simulations/num_proc;
 	string filename = "AverageProbCpp" + to_string(num_qbits) + "Q.txt";
 
