@@ -25,7 +25,7 @@ using namespace std::chrono;
 // =============== GLOBALLY DEFINED INPUTS ================== //
 // ========================================================== //
 
-const int num_qbits = 5;
+const int num_qbits = 2;
 //const int dim = pow(2,num_qbits);
 const double T = 1;	//0.5/1
 const double lam_sq = 0.5;	//1
@@ -291,7 +291,7 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, VectorXd& probs)
 	//cout << "\nInitial phi \n" << phi.transpose() << "\n\n";
 	int dim = pow(2,n);
 
-	const double dt = 0.00001;	//0.0001
+	const double dt = 0.0001;	//0.0001
 	const double AT = 13;
 	const int iterations = static_cast<int>(AT/dt);
 
@@ -300,10 +300,10 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, VectorXd& probs)
 
 	VectorXcd phi_decomp(dim);
 
-	//progressbar bar(iterations+1);
+	progressbar bar(iterations+1);
 	auto start = high_resolution_clock::now();
 	for (int i=0; i<=iterations; i++) {
-		//bar.update();
+		bar.update();
 		EigenSystem eigensystem = Hamiltonian(i*(dt/AT), n);
 		// z-basis to instataneous basis
 		phi_decomp = (*eigensystem.eigenstates) * phi.conjugate();
@@ -435,7 +435,7 @@ bool MCWF(VectorXcd phi, const int n, const bool print_summary, VectorXd& probs)
 	//cout << "\n\n------------- SUMMARY ------------\n";
 	//cout << "Probabilities\n" << RoundVector(probs_unormalized, 0.001).transpose() << "\n";
 	//cout << "Phi norm: " << Round(phi_decomp.norm(), 0.001) << "\n";
-	//cout << "Normalized probabilities\n" << RoundVector(probs, 0.001).transpose() << "\n";
+	cout << "Normalized probabilities\n" << RoundVector(probs, 0.001).transpose() << "\n";
 	//cout << "Duration: " << duration.count() << endl;
 	//cout << "---------------- END ---------------\n";
 
@@ -509,6 +509,49 @@ void RunMCWF(VectorXcd phi, const int n) {
 	return;	
 }
 
+
+void RunMCWF_Lunarc(VectorXcd phi, const int n) {
+	// Runs MCWF multiple times in a forloop. Should be used with SLURM jobs on Cosmos.
+	// Additional input required below.
+
+	// Additional input
+	int num_simulations = 20;
+	string filename = "NonEqAverageProbCpp" + to_string(num_qbits) + "Q.txt";
+
+	// Use multiprocessing to run MCWF multiple times.
+	// Save results from each run in text file.
+	ofstream f1;
+	f1.open(filename, ios::out | ios::app);
+
+	// Generate new seed for the random number generator
+	// Use process ID and current time
+	char* slurm_procid = std::getenv("SLURM_PROCID");
+	int task_rank = 0;
+	
+	// Below not needed for the seed since each job is being started 1 second apart.
+	//if (slurm_procid != nullptr) {
+	//	cout << "No task rank!\n";
+	//	task_rank = std::atoi(slurm_procid);
+	//} else {	
+	//	cout << "No task rank!\n";
+	//}
+	unsigned int seed = static_cast<unsigned int>(std::time(nullptr) + task_rank);
+	srand(seed);
+
+	for (int i=0; i<num_simulations; i++) {
+		VectorXd probs;
+		if (!MCWF(phi, num_qbits, false, probs)) {
+			continue;
+		}
+			cout << "DONE\n";	
+			f1 << probs.transpose() << "\n";
+	}
+	f1.close();
+
+	return;	
+}
+
+
 double BoltzmanDist(const int n) {
 	EigenSystem eigensystem = Hamiltonian(0, n);
 	double eigenvalue_min = (*eigensystem.eigenvalues).minCoeff();
@@ -559,6 +602,35 @@ void CompareBoltzmanToMCWF(const int n) {
 }
 
 
+void TempFcn(const int n) {
+        string filename = "NonEqAverageProbCpp" + to_string(num_qbits) + "Q.txt";
+
+        // Read data from file and give a summary.
+        int num_rows = NumberOfLines(filename);
+        int num_cols = pow(2, n);
+        ArrayXXd probs = ReadFile(filename, num_rows, num_cols);
+
+        // Call PSDE function to compute average probability, standard
+        // deviation and error for being in each state.
+        ArrayXXd statistics(3,probs.cols());
+        statistics = PSDE(probs);
+
+
+	double b_prob = BoltzmanDist(num_qbits);
+
+        cout << "\n\n------------------- SUMMARY ---------------------\n";
+        cout << "Average Probabilities: " << statistics.row(0) << "\n";
+        cout << "Standard Deviations:   " << statistics.row(1) << "\n";
+        cout << "Standard Errors:       " << statistics.row(2) << "\n\n\n";
+        cout << "Boltzman Distribution: " << b_prob << "\n";
+        cout << "----------------------- END ------------------------\n";
+
+	return;
+}
+
+
+
+
 int main() {
 	//srand(time(0));
 	int dim = pow(2,num_qbits);
@@ -567,10 +639,13 @@ int main() {
 	initial_phi = eigensystem.eigenstates->row(0);
 	VectorXd probs;
 
-	//MCWF(initial_phi, num_qbits, true, probs);
-	RunMCWF(initial_phi, num_qbits);
-	double b_prob = BoltzmanDist(num_qbits);
-	cout << "Boltzman Distribution: " << b_prob << "\n";
+	MCWF(initial_phi, num_qbits, true, probs);
+	//RunMCWF(initial_phi, num_qbits);
+	//RunMCWF_Lunarc(initial_phi, num_qbits);
+	//TempFcn(num_qbits);
+
+	//double b_prob = BoltzmanDist(num_qbits);
+	//cout << "Boltzman Distribution: " << b_prob << "\n";
 	
 	//CompareBoltzmanToMCWF(5);
 
