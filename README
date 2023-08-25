@@ -1,7 +1,19 @@
 ################# BEFORE RUNNING #########################
 -----------------------------------------------
-1. 	Install the libraries:
+Before running, make sure you have the following libraries installed
+	- Eigen 
+	- boost 
+	- Progressbar (optional)
+		https://github.com/gipert/progressbar
+By executing IncludesPaths.sh via "source IncludePaths.sh", you can conviniently include the paths
+of the Egan and Boost libraries to the $CPLUS_INCLUDE_PATH variable. Make sure the paths in the script
+are correct. 
 
-2. 	Before you can run the C++ MCWF called CPP_QA.cxx, you must include the neccessarry paths 
-	to the eigen and boost libraries. Execute the IncludePaths.sh bash scripts by "source IncludePaths.sh".
-	This will add the neccessarry paths to the $CPLUS_INCLUDE_PATH variable.
+
+
+################### FILES ###############################
+- Cpp_QA.cxx: C++ code for Quantum Annealer. 
+- QA.py - Python code for Quantum Annealer. Not updated, might contain some bugs.
+- SLURM_JOB_QA.sh - SLURM script for running Cpp_QA.cxx on Cosmos.
+- IncludePaths-sh - Contains paths to libraries
+- Statistics - Folder containing data I gathered for the presentation. 
