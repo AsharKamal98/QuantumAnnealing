@@ -1,8 +1,8 @@
-# Quantum annealer
+# Quantum Annealer
 C++ script (and Python) for simulating a qauntum annealer coupled to a thermal bath. Used to investigate thermal effects in quantum computations.
 
-### BEFORE RUNNING
-Before running, make sure you have the following libraries installed
+### Requisits
+Make sure you have the following libraries installed
 	- Eigen 
 	- boost 
 	- Progressbar (optional)
@@ -13,7 +13,7 @@ are correct.
 
 
 
-### FILES 
+### Overview 
 - Cpp_QA.cxx: (Main) C++ code for Quantum Annealer. 
 - QA.py - Python code for Quantum Annealer used in developement stages. Runs, but not fully updated.
 - SLURM_JOB_QA.sh - SLURM script for running Cpp_QA.cxx on Cosmos (cluster).
