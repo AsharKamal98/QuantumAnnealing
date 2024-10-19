@@ -1,4 +1,4 @@
-################# BEFORE RUNNING #########################
+### BEFORE RUNNING
 -----------------------------------------------
 Before running, make sure you have the following libraries installed
 	- Eigen 
@@ -11,7 +11,7 @@ are correct.
 
 
 
-################### FILES ###############################
+### FILES 
 - Cpp_QA.cxx: (Main) C++ code for Quantum Annealer. 
 - QA.py - Python code for Quantum Annealer used in developement stages. Runs, but not fully updated.
 - SLURM_JOB_QA.sh - SLURM script for running Cpp_QA.cxx on Cosmos (cluster).
