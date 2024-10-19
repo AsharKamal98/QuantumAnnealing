@@ -1,5 +1,7 @@
+# Quantum annealer
+C++ script (and Python) for simulating a qauntum annealer coupled to a thermal bath. Used to investigate thermal effects in quantum computations.
+
 ### BEFORE RUNNING
------------------------------------------------
 Before running, make sure you have the following libraries installed
 	- Eigen 
 	- boost 
